@@ -1,0 +1,40 @@
+소리 파일 이름 목록 (3-190). 확장자는 .wav .mp3 .ogg 아무거나. 이름만 똑같이.
+없는 파일은 소리 없이 넘어감. 같은 효과음 여러 개 = 이름_2, 이름_3 ... (무작위로 하나)
+
+[BGM 폴더] 배경음 (반복 재생, 화면이 바뀌면 0.8초 동안 부드럽게 바뀜)
+  Title   타이틀·캐릭터 선택
+  Map     지도·선택지·보물 상자·제단
+  Battle  일반 전투 (정예·엘리트 포함)
+  Boss    보스 전투
+  Shop    상점
+  Rest    야영지·대장간
+  Ending  엔딩
+
+[SFX 폴더] 효과음
+  ★ 먼저 넣으면 좋은 5개: CardPlay, Hit, Block, Kill, Click
+  Click       모든 버튼 누를 때
+  CardPlay    카드를 낼 때
+  CardDraw    카드를 뽑을 때
+  Hit         적이 맞을 때 (기본)
+  HitHeavy    적이 큰 피해(20 이상)를 맞을 때 (없으면 Hit)
+  Kill        적이 쓰러질 때
+  PlayerHit   플레이어가 맞을 때 (없으면 Hit)
+  PlayerDown  플레이어가 쓰러질 때 (없으면 Kill)
+  Block       방어도를 얻을 때
+  BlockHit    방어도로 막았을 때 (없으면 Block)
+  Heal        HP 회복
+  Debuff      약화·취약·손상이 걸릴 때
+  PowerUp     몬스터가 힘을 얻을 때
+  Burn        발화가 걸릴 때 (없으면 Fire)
+  Freeze      동결·동상 (없으면 Ice)
+  Slash       카인 공격 · 실비아 총검술
+  Fire        이그니스 공격
+  Ice         제피르 얼음 공격
+  Lightning   제피르 벼락 공격
+  Gun         실비아 사격
+  TurnStart   내 턴 시작
+  EnemyTurn   적 턴 시작
+  BossAppear  보스 전투 시작
+  EliteAppear  엘리트 등장 (없으면 BossAppear 소리) (3-200)
+  Victory     전투 승리 (짧은 음악)
+  Defeat      패배 (짧은 음악)
