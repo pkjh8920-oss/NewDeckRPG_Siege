@@ -116,6 +116,9 @@ public class TitlePanel : MonoBehaviour
         // 메뉴 5개 (3-180): 상태창 안에 글자 + 투명 버튼 (그림 크기가 바뀌어도 비율로 따라감)
         menuLayer = art.rectTransform;
         string[] names = { "싱글플레이", "멀티플레이", "도감", "설정", "종료" };   // 3-180: 도감 추가
+#if UNITY_WEBGL && !UNITY_EDITOR
+        names[4] = "탭 닫기로 종료";   // 3-202: 웹에서는 게임이 스스로 창을 닫을 수 없어서 안내만
+#endif
         for (int i = 0; i < names.Length; i++)
         {
             int index = i;
@@ -338,6 +341,9 @@ public class TitlePanel : MonoBehaviour
     {
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;   // 에디터: 플레이 멈춤
+#elif UNITY_WEBGL
+        // 3-202: 웹(브라우저)에서는 Application.Quit() 을 부르면 창은 안 닫히고 게임만 멈춤(먹통)
+        //   → 아무것도 안 함. 플레이어가 브라우저 탭을 닫으면 끝
 #else
         Application.Quit();                                // 빌드한 게임: 창 닫기
 #endif
