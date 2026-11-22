@@ -123,6 +123,7 @@ public class PlacePanel : MonoBehaviour
         UIFactory.Stretch(fireHit.rectTransform);
         fireHit.raycastTarget = true;
         Button fireButton = fireHit.gameObject.AddComponent<Button>();
+        UIFactory.AddClick(fireButton);   // 3-266: 그림 버튼도 누르는 소리
         fireButton.transition = Selectable.Transition.None;
         fireButton.onClick.AddListener(OnFireClicked);
         HoverRelay fireRelay = fireHit.gameObject.AddComponent<HoverRelay>();
@@ -322,6 +323,7 @@ public class PlacePanel : MonoBehaviour
         // 카드 전체가 버튼
         frame.raycastTarget = true;
         Button b = frame.gameObject.AddComponent<Button>();
+        UIFactory.AddClick(b);   // 3-266: 그림 버튼도 누르는 소리
         b.transition = Selectable.Transition.None;
         b.interactable = opt.Enabled;
         System.Action click = opt.OnClick;

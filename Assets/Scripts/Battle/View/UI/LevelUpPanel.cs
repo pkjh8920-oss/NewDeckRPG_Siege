@@ -38,6 +38,12 @@ public class LevelUpPanel : MonoBehaviour
 
     public bool IsOpen { get { return gameObject.activeSelf; } }
 
+    // 3-244 온라인: 각자 자기 캐릭터만 찍고 [확정] → "LVL|자리|힘|체력|민첩" 명령. 모두 확정하면 다 같이 다음으로
+    private bool online;
+    private List<PlayerCombatant> netPlayers = new List<PlayerCombatant>();
+    private HashSet<int> netNeed = new HashSet<int>();    // 포인트를 써야 하는 자리
+    private HashSet<int> netDone = new HashSet<int>();    // 확정한 자리
+
     // ---- 카드 3장의 자리 (그림 기준 가운데 x) 와 색 ----
     static readonly float[] CardX = { 202f, 515f, 832f };
     static readonly Vector2[] CardSize = { new Vector2(220, 340), new Vector2(220, 340), new Vector2(228, 342) };
@@ -134,6 +140,7 @@ public class LevelUpPanel : MonoBehaviour
         Image hit = UIFactory.MakeImage(name, board, Color.white);
         PlaceArt(hit.rectTransform, cx, cy, w - 16, h - 14);
         Button b = hit.gameObject.AddComponent<Button>();
+        UIFactory.AddClick(b);   // 3-266: 그림 버튼도 누르는 소리
         b.targetGraphic = hit;
         ColorBlock cb = b.colors;
         cb.normalColor = new Color(1f, 1f, 1f, 0f);
@@ -161,6 +168,8 @@ public class LevelUpPanel : MonoBehaviour
     // 스탯 포인트가 남은 사람들을 차례로 보여 줌. 아무도 없으면 바로 onDone
     public void Open(List<PlayerCombatant> players, System.Action done)
     {
+        if (NetGate.Active) { OpenOnline(players, done); return; }
+        online = false;
         queue.Clear();
         foreach (PlayerCombatant p in players)
         {
@@ -173,6 +182,69 @@ public class LevelUpPanel : MonoBehaviour
         transform.SetAsLastSibling();
         LateUpdate();
         Next();
+    }
+
+    void OpenOnline(List<PlayerCombatant> players, System.Action done)
+    {
+        online = true;
+        onDone = done;
+        queue.Clear();
+        netPlayers = new List<PlayerCombatant>(players);
+        netNeed.Clear();
+        netDone.Clear();
+        for (int i = 0; i < players.Count; i++)
+        {
+            RunState.DiscardUnusablePoints(players[i]);
+            if (players[i].StatPoints > 0 && !NetGate.IsAway(i)) netNeed.Add(i);
+        }
+        if (netNeed.Count == 0) { Finish(); return; }
+        gameObject.SetActive(true);
+        transform.SetAsLastSibling();
+        LateUpdate();
+        int me = NetGate.Me;
+        if (netNeed.Contains(me))
+        {
+            current = players[me];
+            sStr = current.Str; sCon = current.Con; sAgi = current.Agi;
+            sMaxHp = current.MaxHp; sHp = current.Hp; sPoints = current.StatPoints;
+            Redraw();
+        }
+        else ShowWaiting();
+    }
+
+    // 내 차례가 끝났거나 나는 포인트가 없음 → 동료를 기다림
+    void ShowWaiting()
+    {
+        current = null;
+        whoText.text = "동료가 스탯을 고르는 중입니다";
+        pointsText.text = "(" + netDone.Count + " / " + netNeed.Count + " 확정)";
+        pointsText.color = new Color(1f, 1f, 1f, 0.6f);
+        for (int i = 0; i < 3; i++) cardButton[i].interactable = false;
+        resetButton.interactable = false;
+        confirmButton.interactable = false;
+        confirmLabel.text = "기다리는 중...";
+    }
+
+    // "LVL" 명령: 그 사람의 스탯을 a·b·c 번씩 올림 (모든 화면이 같은 순서로)
+    public void ApplyNet(int slot, int a, int b, int c)
+    {
+        if (!online || !IsOpen || slot < 0 || slot >= netPlayers.Count) return;
+        if (!netNeed.Contains(slot) || netDone.Contains(slot)) return;
+        PlayerCombatant p = netPlayers[slot];
+        int[] count = { a, b, c };
+        for (int which = 0; which < 3; which++)
+            for (int k = 0; k < count[which]; k++) RunState.SpendStat(p, which);
+        RunState.DiscardUnusablePoints(p);
+        netDone.Add(slot);
+        NetCheckDone();
+    }
+
+    // 다 확정했는지 (나간 사람은 확정한 걸로 침). 다 됐으면 모든 화면이 같이 다음으로
+    public void NetCheckDone()
+    {
+        if (!online || !IsOpen) return;
+        foreach (int s in netNeed) if (!netDone.Contains(s) && !NetGate.IsAway(s)) { if (current == null) ShowWaiting(); return; }
+        Finish();
     }
 
     void Next()
@@ -198,6 +270,7 @@ public class LevelUpPanel : MonoBehaviour
     {
         if (current == null) return;
         if (!RunState.SpendStat(current, which)) return;
+        SoundManager.Play("StatPick", "RewardPick");   // 3-256: 스탯 찍는 소리 = 보상 카드 소리를 1.5배 빠르게
         Redraw();
         StartCoroutine(Pop(valueText[which].rectTransform));
         StartCoroutine(Pop(nameText[which].rectTransform));
@@ -281,6 +354,18 @@ public class LevelUpPanel : MonoBehaviour
 
     void Confirm()
     {
+        if (online)
+        {
+            if (current == null) return;
+            // 찍은 만큼 세고 → 화면을 열었을 때로 되돌린 뒤 → 명령으로 보냄 (돌아오면 모든 화면에서 같이 올림)
+            int a = current.Str - sStr, b = current.Con - sCon, c = current.Agi - sAgi;
+            ResetPoints();
+            int me = NetGate.Me;
+            current = null;
+            ShowWaiting();
+            NetGate.Sender("LVL|" + me + "|" + a + "|" + b + "|" + c);
+            return;
+        }
         RunState.DiscardUnusablePoints(current);
         if (queue.Count > 0) Next();
         else Finish();

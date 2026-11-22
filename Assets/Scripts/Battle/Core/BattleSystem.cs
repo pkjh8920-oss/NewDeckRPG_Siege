@@ -43,6 +43,7 @@ public class BattleSystem
     public List<List<EnemyCombatant>> UpcomingWaves = new List<List<EnemyCombatant>>();
     public int WaveNumber = 1;
     public int WaveCount = 1;
+    public int ShuffleCount;          // 3-252: 버린 카드를 섞을 때마다 +1 (화면이 "섞는 소리"를 내는 용도)
     public int WaveVersion;           // 웨이브가 바뀔 때마다 +1 (화면이 "적이 바뀌었다"를 알아채는 용도)
     public int EnemyListVersion;      // 3-102: 웨이브 안에서 적 목록이 바뀔 때 +1 (점토 분열) → 화면이 적 칸만 다시 만듦
     public bool KeepHalfBlock;        // true 면 내 턴 시작에 방어도 절반 유지 (수성의 여러 웨이브 칸)
@@ -1622,6 +1623,7 @@ public class BattleSystem
                 player.DrawPile.AddRange(player.DiscardPile);
                 player.DiscardPile.Clear();
                 Shuffle(player.DrawPile);
+                ShuffleCount++;
                 AddLog(player.Name + ": 버린 카드 더미를 섞어 뽑을 카드 더미로");
                 index = FindDrawableIndex(player.DrawPile);
                 if (index < 0) return;

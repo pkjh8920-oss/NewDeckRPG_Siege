@@ -132,6 +132,12 @@ public class PauseMenu : MonoBehaviour
             resetText.text = "초기화됨";   // 다음에 그 화면을 보면 안내가 다시 뜸
         });
 
+        // 3-249 온라인 방 코드 (튜토리얼 아래). 끊긴 친구에게 다시 알려 줄 때
+        Text roomText = UIFactory.MakeText("RoomCode", settings, "", 26, UIFactory.Hex("#FFD27A"), TextAnchor.MiddleCenter);
+        UIFactory.Place(roomText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -460), new Vector2(560, 50));
+        roomText.supportRichText = true;
+        refreshSettings = () => { roomText.text = RoomCodeLine(); };
+
         Button back = UIFactory.MakeButton("Back", settings, "뒤로", UIFactory.Hex("#3A3F4C"), () => { GameSettings.Save(); settings.gameObject.SetActive(false); main.gameObject.SetActive(true); }, 26);
         UIFactory.Place((RectTransform)back.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0, 30), new Vector2(200, 60));
         settings.gameObject.SetActive(false);
@@ -174,11 +180,15 @@ public class PauseMenu : MonoBehaviour
             resetText.text = "초기화됨";       // 다음에 그 화면을 보면 안내가 다시 뜸
         });
 
+        // 3-249 온라인 방 코드 (튜토리얼 아래, 뒤로 단추 위)
+        Text roomLabel = SettingsArt.Label(art, "RoomCode", new SettingsArt.Box(120, 674, 800, 738), "", 32, UIFactory.Hex("#FFD27A"));
+        roomLabel.supportRichText = true;
+
         // 뒤로 (글자는 그림에 있음)
         SettingsArt.Hotspot(art, "Back", new SettingsArt.Box(310, 749, 597, 834), () => Back());
 
         // 열 때마다 지금 값으로 (람다 여러 개를 하나로 묶음 = 자바의 Runnable 안에서 차례로 run())
-        refreshSettings = () => { r1(); r2(); r3(); r4(); r5(); resetText.text = "다시 보기"; };
+        refreshSettings = () => { r1(); r2(); r3(); r4(); r5(); resetText.text = "다시 보기"; roomLabel.text = RoomCodeLine(); };
         settings.gameObject.SetActive(false);
         return true;
     }
@@ -191,6 +201,13 @@ public class PauseMenu : MonoBehaviour
             new SettingsArt.Box(706, y0, 785, y1),          // [+]
             new SettingsArt.Box(560, y0 + 10, 700, y1 - 10),   // 60% (두 단추 사이 어두운 칸)
             null, null, 38, get, set);                      // 이 그림엔 막대가 없음 → 숫자만
+    }
+
+    // 3-249: "방 코드  K7XPQ2  (끊긴 친구는 이 코드로 다시 참가)" / 온라인이 아니면 빈 글자
+    static string RoomCodeLine()
+    {
+        if (!NetSession.Online || string.IsNullOrEmpty(NetSession.Code)) return "";
+        return "방 코드  " + NetSession.Code + "  <size=20><color=#D8CFC0>(끊긴 친구는 이 코드로 다시 참가)</color></size>";
     }
 
     public void Open()
@@ -295,6 +312,7 @@ public class PauseMenu : MonoBehaviour
         UIFactory.Stretch(hit.rectTransform);
         hit.raycastTarget = true;
         Button b = hit.gameObject.AddComponent<Button>();
+        UIFactory.AddClick(b);   // 3-266: 그림 버튼도 누르는 소리
         b.transition = Selectable.Transition.None;
         b.onClick.AddListener(onClick);
         HoverRelay hover = hit.gameObject.AddComponent<HoverRelay>();

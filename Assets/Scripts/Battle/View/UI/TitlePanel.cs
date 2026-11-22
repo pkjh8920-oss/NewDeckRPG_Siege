@@ -4,7 +4,8 @@
 //
 //   싱글플레이 → 바로 런 시작 (Inspector 의 playerClass 직업으로 1명)
 //   멀티플레이 → 방 화면: 방 코드, 자리 4개 (플레이어 추가·빼기, 직업 고르기) → 게임 시작
-//                ※ 지금은 한 PC에서 같이 하는 방식. 온라인 연결(네트워크)은 아직 없음
+//                3-236: [방 만들기] = 온라인 방 (Unity Relay, 방 코드 6글자). 친구는 [코드로 참가]
+//                       인터넷·Unity 서비스가 안 되면 예전처럼 한 PC 에서 함께
 //   설정       → 소리 크기 (전체 / 배경음악 / 효과음), 전체 화면
 //   종료       → 게임 끄기 (에디터에서는 플레이 멈춤)
 //
@@ -62,6 +63,11 @@ public class TitlePanel : MonoBehaviour
     private RectTransform lobbyRoom;         // 만든 방 (인원)
     private InputField codeInput;
     private Text joinMessage;
+    // 3-236 온라인: 방 코드로 다른 컴퓨터와 연결된 방인지 (false = 예전처럼 한 PC 에서 함께)
+    private bool onlineRoom;
+    private Text roomNote;                   // 방 화면 안내 글 (온라인 / 한 PC 에 따라 바뀜)
+    const string LocalNote = "한 PC에서 함께 하기\n다음 화면에서 P1부터 차례로 캐릭터를 고릅니다 · 같은 캐릭터는 한 명만";
+    const string OnlineNote = "친구에게 방 코드를 알려 주세요 · 친구는 [코드로 참가]에 입력\n각자 자기 컴퓨터에서 캐릭터를 고릅니다 · 같은 캐릭터는 한 명만";
 
     public static TitlePanel Create(Transform parent)
     {
@@ -154,6 +160,7 @@ public class TitlePanel : MonoBehaviour
             Image hit = UIFactory.MakeImage("Hit", zone, new Color(0, 0, 0, 0), false);
             UIFactory.Stretch(hit.rectTransform);
             Button b = hit.gameObject.AddComponent<Button>();
+            UIFactory.AddClick(b);   // 3-266: 그림 버튼도 누르는 소리
             b.transition = Selectable.Transition.None;
             b.onClick.AddListener(() => OnMenu(index));
             HoverRelay hover = hit.gameObject.AddComponent<HoverRelay>();
@@ -181,6 +188,7 @@ public class TitlePanel : MonoBehaviour
             float h = 150f, w = h * continueArt.rect.width / continueArt.rect.height;   // 그림 비율 그대로 (817×218 → 약 562×150)
             UIFactory.Place(contArt.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0, 50), new Vector2(w, h));
             continueButton = contArt.gameObject.AddComponent<Button>();
+            UIFactory.AddClick(continueButton);   // 3-266: 그림 버튼도 누르는 소리
             continueButton.targetGraphic = contArt;
             ColorBlock cb = continueButton.colors;   // 마우스를 올리면 살짝 밝게, 누르면 살짝 어둡게
             cb.highlightedColor = new Color(1.12f, 1.12f, 1.12f, 1f);
@@ -424,7 +432,8 @@ public class TitlePanel : MonoBehaviour
         UIFactory.Stretch(lobbyRoom, 0, 0, 90, 0);
         roomCodeText = UIFactory.MakeText("RoomCode", lobbyRoom, "", 34, UIFactory.Hex("#FFD27A"), TextAnchor.MiddleCenter);
         UIFactory.Place(roomCodeText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -10), new Vector2(900, 50));
-        Text note = UIFactory.MakeText("Note", lobbyRoom, "한 PC에서 함께 하기 (온라인 연결은 준비 중)\n다음 화면에서 P1부터 차례로 캐릭터를 고릅니다 · 같은 캐릭터는 한 명만", 21, UIFactory.Hex("#E6DCF0"), TextAnchor.MiddleCenter);
+        Text note = UIFactory.MakeText("Note", lobbyRoom, LocalNote, 21, UIFactory.Hex("#E6DCF0"), TextAnchor.MiddleCenter);
+        roomNote = note;
         UIFactory.Place(note.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -62), new Vector2(920, 56));
 
         slotLayer = UIFactory.MakeRect("Slots", lobbyRoom);
@@ -467,7 +476,7 @@ public class TitlePanel : MonoBehaviour
         lobbyRoom = roomArt.rectTransform;
         roomCodeText = ArtText(lobbyRoom, "", 34, UIFactory.Hex("#FFD27A"), 100, 86, 410, 124);
         roomCodeText.fontStyle = FontStyle.Bold;
-        ArtText(lobbyRoom, "한 PC에서 함께 하기 (온라인 연결은 준비 중)\n다음 화면에서 P1부터 차례로 캐릭터를 고릅니다 · 같은 캐릭터는 한 명만", 18, UIFactory.Hex("#E6DCF0"), 44, 124, 464, 170);
+        roomNote = ArtText(lobbyRoom, LocalNote, 18, UIFactory.Hex("#E6DCF0"), 44, 124, 464, 170);
         slotLayer = UIFactory.MakeRect("Slots", lobbyRoom);
         UIFactory.Stretch(slotLayer);
         ArtButton(lobbyRoom, "방 나가기", 28, UIFactory.Hex("#F4EAD6"), 118, 486, 240, 542, ShowLobbyHome);
@@ -501,6 +510,7 @@ public class TitlePanel : MonoBehaviour
         UIFactory.Stretch(hit.rectTransform);
         hit.raycastTarget = true;
         Button b = hit.gameObject.AddComponent<Button>();
+        UIFactory.AddClick(b);   // 3-266: 그림 버튼도 누르는 소리
         b.transition = Selectable.Transition.None;
         b.onClick.AddListener(onClick);
         HoverRelay hover = hit.gameObject.AddComponent<HoverRelay>();
@@ -525,12 +535,12 @@ public class TitlePanel : MonoBehaviour
         Text text = UIFactory.MakeText("Text", bg.transform, "", 36, UIFactory.Hex("#FFD27A"), TextAnchor.MiddleCenter);
         UIFactory.Stretch(text.rectTransform, 6, 6, 4, 4);
         text.supportRichText = false;
-        Text placeholder = UIFactory.MakeText("Placeholder", bg.transform, "방 코드 5자리", 26, new Color(1f, 1f, 1f, 0.5f), TextAnchor.MiddleCenter);
+        Text placeholder = UIFactory.MakeText("Placeholder", bg.transform, "방 코드 " + GameBalance.NetCodeLength + "자리", 26, new Color(1f, 1f, 1f, 0.5f), TextAnchor.MiddleCenter);
         UIFactory.Stretch(placeholder.rectTransform, 6, 6, 4, 4);
         InputField input = bg.gameObject.AddComponent<InputField>();
         input.textComponent = text;
         input.placeholder = placeholder;
-        input.characterLimit = 5;
+        input.characterLimit = GameBalance.NetCodeLength;
         input.contentType = InputField.ContentType.Alphanumeric;
         input.onValueChanged.AddListener(v => { string up = v.ToUpperInvariant(); if (up != v) input.text = up; });
         return input;
@@ -561,18 +571,18 @@ public class TitlePanel : MonoBehaviour
             Text badge = ArtTextIn(slotLayer, "P" + (i + 1), 30, filled ? Color.Lerp(PlayerColor(i), Color.white, 0.3f) : new Color(1f, 1f, 1f, 0.45f), 52, y0 + 14, 98, y1 - 14);
             badge.font = UIFactory.TitleFont;
             badge.gameObject.AddComponent<Outline>().effectColor = new Color(0, 0, 0, 0.85f);
-            string label = filled ? (i == 0 ? "방장" : "참가함") : (locked ? "직업이 늘어나면 열림" : "빈 자리");
+            string label = filled ? SlotLabel(i) : (locked ? "직업이 늘어나면 열림" : "빈 자리");
             Text who = ArtTextIn(slotLayer, label, 28, filled ? Color.Lerp(PlayerColor(i), Color.white, 0.5f) : new Color(1f, 1f, 1f, 0.5f), 106, y0 + 14, 300, y1 - 14);
             who.alignment = TextAnchor.MiddleLeft;
             who.fontStyle = FontStyle.Bold;
             if (filled)
             {
-                bool canRemove = i > 0 && i == lobbyPlayers - 1;
+                bool canRemove = i > 0 && i == lobbyPlayers - 1 && !onlineRoom;   // 3-236: 온라인은 사람이 직접 나감
                 Text state = ArtTextIn(slotLayer, "캐릭터는 다음 화면에서", 19, UIFactory.Hex("#D8D0E4"), 250, y0 + 20, canRemove ? 418 : 468, y1 - 20);
                 state.alignment = TextAnchor.MiddleRight;
                 if (canRemove) ArtSprite(slotLayer, "UI/Lobby/Lobby_RemoveBtn", 424, y0 + 14, 468, y1 - 14, RemovePlayer);
             }
-            else if (!locked && i == lobbyPlayers)
+            else if (!locked && i == lobbyPlayers && !onlineRoom)
             {
                 ArtSprite(slotLayer, "UI/Lobby/Lobby_AddBtn", 325, y0 + 7, 470, y1 - 7, AddPlayer);
                 Text add = ArtTextIn(slotLayer, "+ 플레이어 추가", 22, UIFactory.Hex("#F4EAD6"), 335, y0 + 14, 460, y1 - 14);
@@ -595,6 +605,7 @@ public class TitlePanel : MonoBehaviour
         img.preserveAspect = true;
         UIFactory.Stretch(img.rectTransform);
         Button b = img.gameObject.AddComponent<Button>();
+        UIFactory.AddClick(b);   // 3-266: 그림 버튼도 누르는 소리
         ColorBlock cb = b.colors;
         cb.highlightedColor = new Color(1.25f, 1.25f, 1.25f, 1f);
         b.colors = cb;
@@ -610,12 +621,12 @@ public class TitlePanel : MonoBehaviour
         Text text = UIFactory.MakeText("Text", bg.transform, "", 36, UIFactory.Hex("#FFD27A"), TextAnchor.MiddleCenter);
         UIFactory.Stretch(text.rectTransform, 10, 10, 6, 6);
         text.supportRichText = false;
-        Text placeholder = UIFactory.MakeText("Placeholder", bg.transform, "방 코드 5자리", 26, new Color(1f, 1f, 1f, 0.45f), TextAnchor.MiddleCenter);
+        Text placeholder = UIFactory.MakeText("Placeholder", bg.transform, "방 코드 " + GameBalance.NetCodeLength + "자리", 26, new Color(1f, 1f, 1f, 0.45f), TextAnchor.MiddleCenter);
         UIFactory.Stretch(placeholder.rectTransform, 10, 10, 6, 6);
         InputField input = bg.gameObject.AddComponent<InputField>();
         input.textComponent = text;
         input.placeholder = placeholder;
-        input.characterLimit = 5;
+        input.characterLimit = GameBalance.NetCodeLength;
         input.contentType = InputField.ContentType.Alphanumeric;
         input.onValueChanged.AddListener(v => { string up = v.ToUpperInvariant(); if (up != v) input.text = up; });
         return input;
@@ -640,28 +651,116 @@ public class TitlePanel : MonoBehaviour
 
     void ShowLobbyHome()
     {
+        if (onlineRoom) NetSession.Leave();   // 3-236: [방 나가기] = 연결 끊기
+        onlineRoom = false;
         lobbyHome.gameObject.SetActive(true);
         lobbyRoom.gameObject.SetActive(false);
         joinMessage.text = "";
         codeInput.text = "";
     }
 
+    // 3-236 [방 만들기]: 온라인 방을 열고 방 코드를 받음
+    //   인터넷·Unity 서비스가 안 되면 예전처럼 "한 PC 에서 함께" 방으로
     void CreateRoom()
     {
-        roomCode = MakeRoomCode();
-        lobbyPlayers = 2;   // 방장 + 1명으로 시작 (같은 PC에서 함께)
-        roomCodeText.text = "방 코드   " + roomCode;
-        lobbyHome.gameObject.SetActive(false);
-        lobbyRoom.gameObject.SetActive(true);
-        RebuildSlots();
+        if (NetSession.Busy) return;
+        joinMessage.text = "방을 만드는 중 . . .";
+        NetSession.Host((ok, result) =>
+        {
+            if (this == null) return;
+            if (ok)
+            {
+                onlineRoom = true;
+                roomCode = result;
+                lobbyPlayers = NetSession.PlayerCount;
+                roomCodeText.text = "방 코드   " + roomCode;
+                roomNote.text = OnlineNote;
+            }
+            else if (NetSession.LastFailFull)
+            {
+                // 3-251: 방이 꽉 참 → 한 PC 방으로 넘어가지 않고 안내만
+                joinMessage.text = result;
+                return;
+            }
+            else
+            {
+                // 온라인이 안 되면 한 PC 방 (예전 방식)
+                onlineRoom = false;
+                roomCode = MakeRoomCode();
+                lobbyPlayers = 2;   // 방장 + 1명으로 시작 (같은 PC에서 함께)
+                roomCodeText.text = "한 PC 방";
+                roomNote.text = result + "\n" + LocalNote;
+            }
+            joinMessage.text = "";
+            lobbyHome.gameObject.SetActive(false);
+            lobbyRoom.gameObject.SetActive(true);
+            RebuildSlots();
+        });
     }
 
-    // 코드로 참가: 온라인이 아직 없어서 안내만 (온라인이 붙으면 여기서 서버에 접속)
+    // 3-236 [참가]: 방 코드로 친구 방에 들어감
     void JoinRoom()
     {
-        string code = codeInput.text.Trim();
-        if (code.Length != 5) { joinMessage.text = "방 코드 5자리를 입력하세요"; return; }
-        joinMessage.text = "[" + code + "] 방을 찾는 기능은 온라인 연결이 붙으면 열려요.\n지금은 [방 만들기]로 같은 PC에서 함께 할 수 있어요.";
+        if (NetSession.Busy) return;
+        string code = codeInput.text.Trim().ToUpperInvariant();
+        if (code.Length != GameBalance.NetCodeLength) { joinMessage.text = "방 코드 " + GameBalance.NetCodeLength + "자리를 입력하세요"; return; }
+        joinMessage.text = "[" + code + "] 방에 들어가는 중 . . .";
+        NetSession.Join(code, (ok, result) =>
+        {
+            if (this == null) return;
+            if (!ok) { joinMessage.text = result; return; }
+            onlineRoom = true;
+            roomCode = code;
+            lobbyPlayers = Mathf.Max(1, NetSession.PlayerCount);
+            roomCodeText.text = "방 코드   " + roomCode;
+            roomNote.text = OnlineNote;
+            joinMessage.text = "";
+            lobbyHome.gameObject.SetActive(false);
+            lobbyRoom.gameObject.SetActive(true);
+            RebuildSlots();
+        });
+    }
+
+    // 3-236: 방 인원·내 번호가 바뀌면 (BattleScreen 이 NetSession.OnRoomChanged 에 연결)
+    public void NetRoomChanged()
+    {
+        if (!onlineRoom) return;
+        int before = lobbyPlayers;
+        lobbyPlayers = Mathf.Max(1, NetSession.PlayerCount);
+        if (lobbyPlayers > before) SoundManager.Play("PlayerJoin");        // 3-252: 친구 들어옴
+        else if (lobbyPlayers < before) SoundManager.Play("PlayerLeave");  // 3-252: 친구 나감
+        if (lobbyRoom != null && lobbyRoom.gameObject.activeInHierarchy) RebuildSlots();
+    }
+
+    // 3-236: 연결이 끊겨서 타이틀로 돌아왔을 때 (방장이 나감 등) → 방 화면 처음으로 + 이유
+    public void ShowNetClosed(string reason)
+    {
+        SoundManager.Play("PlayerLeave");   // 3-261: 방이 닫히거나 끊겨서 돌아옴
+        onlineRoom = false;
+        lobby.gameObject.SetActive(true);
+        lobby.SetAsLastSibling();
+        lobbyHome.gameObject.SetActive(true);
+        lobbyRoom.gameObject.SetActive(false);
+        codeInput.text = NetSession.LastCode;   // 3-249: 끊긴 방 코드를 미리 넣어 둠 → [참가]만 누르면 다시 들어감
+        joinMessage.text = reason + (string.IsNullOrEmpty(NetSession.LastCode) ? "" : "\n<size=16>방이 아직 있으면 [참가]로 다시 들어갈 수 있어요</size>");
+    }
+
+    // P 줄 글자: 온라인이면 "나" 표시
+    string SlotLabel(int i)
+    {
+        string who = i == 0 ? "방장" : "참가함";
+        if (onlineRoom && i == NetSession.LocalSlot) who = i == 0 ? "나 (방장)" : "나";
+        return who;
+    }
+
+    // [캐릭터 선택] 버튼: 온라인 참가자는 누를 수 없고 "방장을 기다리는 중"
+    void RefreshStartButton()
+    {
+        bool waiting = onlineRoom && !NetSession.IsHost;
+        startButton.interactable = !waiting && lobbyPlayers >= 2;
+        Text label = startButton.GetComponentInChildren<Text>();
+        if (label == null && startButton.transform.parent != null) label = startButton.transform.parent.GetComponentInChildren<Text>();
+        if (label != null) label.text = waiting ? "방장 대기 중" : (onlineRoom && lobbyPlayers < 2 ? "친구 대기 중" : "캐릭터 선택");
     }
 
     // 헷갈리는 글자(0, O, 1, I)를 뺀 5글자 코드
@@ -687,7 +786,7 @@ public class TitlePanel : MonoBehaviour
 
     void RebuildSlots()
     {
-        if (lobbyArt) { RebuildSlotsArt(); return; }   // 3-157
+        if (lobbyArt) { RebuildSlotsArt(); RefreshStartButton(); return; }   // 3-157
         for (int i = slotLayer.childCount - 1; i >= 0; i--) Destroy(slotLayer.GetChild(i).gameObject);
 
         for (int i = 0; i < MaxSlots; i++)
@@ -710,7 +809,7 @@ public class TitlePanel : MonoBehaviour
 
             string label;
             Color labelColor;
-            if (filled) { label = i == 0 ? "방장" : "참가함"; labelColor = Color.white; }
+            if (filled) { label = SlotLabel(i); labelColor = Color.white; }
             else if (locked) { label = "직업이 늘어나면 열림 (같은 직업은 한 명만)"; labelColor = new Color(1f, 1f, 1f, 0.5f); }
             else { label = "빈 자리"; labelColor = new Color(1f, 1f, 1f, 0.6f); }
             Text who = UIFactory.MakeText("Who", slot.transform, label, 26, labelColor, TextAnchor.MiddleLeft);
@@ -720,13 +819,13 @@ public class TitlePanel : MonoBehaviour
             {
                 Text state = UIFactory.MakeText("State", slot.transform, "캐릭터는 다음 화면에서", 22, UIFactory.Hex("#CFC4E6"), TextAnchor.MiddleRight);
                 UIFactory.Place(state.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(i > 0 ? -95 : -24, 0), new Vector2(300, 40));
-                if (i > 0 && i == lobbyPlayers - 1)
+                if (i > 0 && i == lobbyPlayers - 1 && !onlineRoom)
                 {
                     Button kick = UIFactory.MakeButton("Remove", slot.transform, "×", UIFactory.Hex("#5A2A3A"), RemovePlayer, 28);
                     UIFactory.Place((RectTransform)kick.transform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-18, 0), new Vector2(60, 56));
                 }
             }
-            else if (!locked && i == lobbyPlayers)
+            else if (!locked && i == lobbyPlayers && !onlineRoom)
             {
                 Button add = UIFactory.MakeButton("Add", slot.transform, "+ 플레이어 추가", UIFactory.Hex("#3A2A5A"), AddPlayer, 24);
                 UIFactory.Place((RectTransform)add.transform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-18, 0), new Vector2(260, 56));
@@ -734,6 +833,7 @@ public class TitlePanel : MonoBehaviour
         }
 
         startButton.interactable = lobbyPlayers >= 2;   // 멀티는 2명부터
+        RefreshStartButton();
     }
 
     void AddPlayer()
@@ -753,6 +853,14 @@ public class TitlePanel : MonoBehaviour
     void StartMulti()
     {
         if (lobbyPlayers < 2) return;
+        // 3-236 온라인: 방장이 누르면 모두의 화면이 같이 캐릭터 선택으로 (BattleScreen 이 GOSELECT 명령을 받아서 엶)
+        if (onlineRoom)
+        {
+            if (!NetSession.IsHost) return;
+            NetSession.GameStarted = true;   // 이제부터 새로 못 들어옴
+            NetSession.Send("GOSELECT|" + lobbyPlayers + "|" + roomCode);
+            return;
+        }
         if (OnMulti != null) OnMulti(lobbyPlayers, roomCode);
     }
 
@@ -795,6 +903,7 @@ public class TitlePanel : MonoBehaviour
     private RectTransform devDialog;
     private InputField devInput;
     private Text devMessage;
+    private Button devOkButton, devOffButton;   // 3-231
 
     void AddDevQuestion(RectTransform parent, Vector2 fromBottomRight)
     {
@@ -808,6 +917,9 @@ public class TitlePanel : MonoBehaviour
     {
         if (DevPanel.Enabled) { devMessageToast(); return; }   // 이미 켜져 있으면 창 없이 알림만
         if (devDialog == null) BuildDevDialog();
+        devInput.gameObject.SetActive(true);      // 3-231
+        devOkButton.gameObject.SetActive(true);
+        devOffButton.gameObject.SetActive(false);
         devInput.text = "";
         devMessage.text = "";
         devDialog.gameObject.SetActive(true);
@@ -816,11 +928,16 @@ public class TitlePanel : MonoBehaviour
         devInput.ActivateInputField();
     }
 
+    // 3-231: 이미 켜져 있으면 = 입력 칸 대신 [개발자 모드 끄기] 버튼
     void devMessageToast()
     {
         if (devDialog == null) BuildDevDialog();
-        devMessage.text = "이미 켜져 있습니다";
+        devMessage.color = UIFactory.Hex("#7AF09A");
+        devMessage.text = "개발자 모드가 켜져 있습니다";
         devInput.text = "";
+        devInput.gameObject.SetActive(false);
+        devOkButton.gameObject.SetActive(false);
+        devOffButton.gameObject.SetActive(true);
         devDialog.gameObject.SetActive(true);
         devDialog.SetAsLastSibling();
     }
@@ -859,6 +976,18 @@ public class TitlePanel : MonoBehaviour
         Button ok = UIFactory.MakeButton("Ok", box, "확인", UIFactory.Hex("#3A4A2C"), SubmitDevPassword, 26);
         UIFactory.Place((RectTransform)ok.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(120, 30), new Vector2(200, 60));
         UIFactory.SkinButton(ok, UIFactory.GothicButton);
+        devOkButton = ok;
+        // 3-231: 끄기 버튼 (켜져 있을 때만 보임, 확인 버튼 자리)
+        devOffButton = UIFactory.MakeButton("Off", box, "개발자 모드 끄기", UIFactory.Hex("#5A2C2C"), () =>
+        {
+            DevPanel.Lock();
+            devMessage.color = UIFactory.Hex("#FF8A7A");
+            devMessage.text = "개발자 모드를 껐습니다";
+            devDialog.gameObject.SetActive(false);
+        }, 24);
+        UIFactory.Place((RectTransform)devOffButton.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(120, 30), new Vector2(240, 60));
+        UIFactory.SkinButton(devOffButton, UIFactory.GothicButton);
+        devOffButton.gameObject.SetActive(false);
         Button cancel = UIFactory.MakeButton("Cancel", box, "취소", UIFactory.Hex("#3A3F4C"), () => devDialog.gameObject.SetActive(false), 26);
         UIFactory.Place((RectTransform)cancel.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-120, 30), new Vector2(200, 60));
         UIFactory.SkinButton(cancel, UIFactory.GothicButton);
@@ -1002,7 +1131,7 @@ public class TitlePanel : MonoBehaviour
         {
             if (devDialog != null && devDialog.gameObject.activeSelf) devDialog.gameObject.SetActive(false);   // 3-205
             else if (settings.gameObject.activeSelf) { GameSettings.Save(); settings.gameObject.SetActive(false); }
-            else if (lobby.gameObject.activeSelf) lobby.gameObject.SetActive(false);
+            else if (lobby.gameObject.activeSelf) { if (onlineRoom) ShowLobbyHome(); lobby.gameObject.SetActive(false); }   // 3-236: 온라인 방이면 나가기까지
             else if (newGameDialog != null && newGameDialog.gameObject.activeSelf) { newGameGo = null; newGameDialog.gameObject.SetActive(false); }   // 3-150: Esc = 취소
         }
     }

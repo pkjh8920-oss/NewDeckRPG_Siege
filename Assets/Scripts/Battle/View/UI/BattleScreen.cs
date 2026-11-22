@@ -67,6 +67,8 @@ public class BattleScreen : MonoBehaviour
     private TitlePanel titlePanel;         // 타이틀 화면 (게임을 켜면 처음)
     private CharacterSelectPanel characterSelect;   // 캐릭터 선택 화면 (싱글플레이)
     private List<PlayerClass> runClasses;  // 이번 런의 플레이어 직업들 (싱글 1명 / 멀티 방에서 고른 사람들)
+    private bool resultDone;               // 3-262: 이번 전투의 [다음] 을 이미 처리함 (두 사람이 동시에 눌러도 한 번만)
+    private int shownShuffle;              // 3-252: 마지막으로 섞는 소리를 낸 ShuffleCount
     private int shownWaveVersion;          // 화면에 그려진 적이 몇 번째 웨이브 것인지
     private int shownEnemyListVersion;     // 3-102: 웨이브 안에서 적 목록이 바뀐 것(점토 분열)을 알아채는 용도
     private bool waveSwapping;             // 다음 웨이브로 바꾸는 연출 중
@@ -169,6 +171,7 @@ public class BattleScreen : MonoBehaviour
     void Start()
     {
         DiscoveryStore.Load();   // 3-180: 도감 기록 불러오기 (컴퓨터에 저장된 "본 카드·아티팩트")
+        SoundManager.PreloadAll();   // 3-240: 효과음을 미리 불러 둠 (처음 소리가 늦게 나는 것 방지)
         BuildCanvas();
         ShowTitle();   // 게임을 켜면 타이틀 화면부터
     }
@@ -203,6 +206,7 @@ public class BattleScreen : MonoBehaviour
     // 싱글플레이: 캐릭터 선택 화면 → [플레이]
     void StartSingle()
     {
+        if (NetSession.Online) LeaveNet();   // 3-248: 지난 온라인 방이 남아 있으면 닫음 (뒤에서 끊겨 화면이 튕기던 것 방지)
         // 상태창을 누르면 소용돌이 → 캐릭터 선택
         ScreenTransition.Play(this, () =>
         {
@@ -224,6 +228,7 @@ public class BattleScreen : MonoBehaviour
     // 멀티플레이 1: 방에서 [캐릭터 선택] → 소용돌이 → 캐릭터 선택 화면 (P1 부터 차례로)
     void OpenMultiSelect(int players, string roomCode)
     {
+        if (NetSession.Online) LeaveNet();   // 3-248: 한 PC 방 (온라인이 아닌 쪽)
         ScreenTransition.Play(this, () =>
         {
             titlePanel.Hide();
@@ -238,6 +243,14 @@ public class BattleScreen : MonoBehaviour
     // 멀티 캐릭터 선택에서 [뒤로] (아무도 안 고른 상태): 방 화면으로
     void BackToRoom()
     {
+        if (NetSession.Online)
+        {
+            // 3-236 온라인: [뒤로] = 방 나가기
+            LeaveNet();
+            ShowTitle();
+            titlePanel.ShowNetClosed("방에서 나왔습니다");
+            return;
+        }
         ShowTitle();
         titlePanel.ReopenRoom();
     }
@@ -245,6 +258,7 @@ public class BattleScreen : MonoBehaviour
     // 멀티플레이 2: 모두 고른 직업들로 시작 (한 PC에서 P1/P2 를 바꿔 가며 조작)
     void StartMulti(List<PlayerClass> classes)
     {
+        if (NetSession.Online) { OpenDifficultyOnline(classes); return; }   // 3-236
         // 캐릭터 선택에서 [게임 시작] → 소용돌이 → 게임 시작
         OpenDifficulty(classes, true);   // 3-196: 모두 고른 뒤 방장(P1)이 난이도
     }
@@ -253,6 +267,7 @@ public class BattleScreen : MonoBehaviour
     //   저장은 메뉴의 [저장] 버튼으로만 (3-141, SaveFromMenu)
     void ContinueRun()
     {
+        if (NetSession.Online) LeaveNet();   // 3-248
         RunState loaded = SaveManager.LoadRun();
         if (loaded == null)
         {
@@ -270,7 +285,7 @@ public class BattleScreen : MonoBehaviour
             runClasses = new List<PlayerClass>();
             foreach (PlayerCombatant p in run.Players) runClasses.Add(p.Class);
             startedFromTitle = true;
-            controlIndex = 0;
+            controlIndex = HomeIndex;
             battle = null;
             Debug.Log("[저장] 이어하기: " + run.Stage + "스테이지 " + run.ProgressText);
             // 레벨 업 포인트를 안 쓰고 저장했으면 레벨 업 화면부터 → 끝나면 런 화면
@@ -293,11 +308,14 @@ public class BattleScreen : MonoBehaviour
             players.Add(ClassLibrary.CreatePlayer(cls, "P" + (i + 1), str, con, agi, testCards));
         }
         int useSeed = (seed == 0) ? System.Environment.TickCount : seed;
+        if (NetPlay) useSeed = netSeed;                             // 3-236 온라인: 방장이 정한 seed (모두 같은 판)
+        voteRng = new System.Random(useSeed ^ 0x1b873593);
+        campVotes = null;   // 3-248           // 3-236: 투표 룰렛도 seed 로 (온라인에서 모두 같은 결과)
         run = new RunState(players, useSeed);
         run.Difficulty = runDifficulty;   // 3-196 (BeginStage 보다 먼저 → 지도 가중치에도 반영)
         int startStage = Mathf.Clamp(stage, 1, GameBalance.MaxStage);
         if (startStage != 1) run.BeginStage(startStage);   // 테스트: 원하는 스테이지부터
-        controlIndex = 0;
+        controlIndex = HomeIndex;
         battle = null;
         string races = "";
         foreach (Race r in run.StageRaces) races += EnemyLibrary.RaceName(r) + " ";
@@ -311,7 +329,7 @@ public class BattleScreen : MonoBehaviour
         StopAllCoroutines();
         ShowTip(null, null);
         ClosePotionTargets();
-        vote = null;                 // 화면이 바뀌면 투표도 처음부터
+        if (!NetPlay) vote = null;   // 화면이 바뀌면 투표도 처음부터 (3-236 온라인은 투표가 끝날 때만 지움 → 화면을 다시 그려도 동료 표가 안 사라짐)
         voteRolling = false;
         HideVoteLabel();
         // 받을 보상이 있으면 보상 화면을 먼저 (스테이지 배너는 보상을 닫은 뒤에)
@@ -341,7 +359,7 @@ public class BattleScreen : MonoBehaviour
             choicePanel.Hide();
             topText.text = (run.IsFinalChapter ? "최종장" : run.Stage + "스테이지") + "   보물 상자 " + (run.TreasureChestIndex + 1) + "/" + GameBalance.TreasureChests + DiffTag();   // 3-174
             // 상자를 누르면 → 물건이 보이고 한 사람이 1개씩 고름 (TreasurePickPanel)
-            if (!run.TreasureOpened) placePanel.ShowChest(run, () => { run.OpenTreasure(); ShowRunScreen(false); });
+            if (!run.TreasureOpened) placePanel.ShowChest(run, () => { if (NetGate.Intercept("CHEST")) return; SoundManager.Play("ChestOpen", "RelicGet"); run.OpenTreasure(); ShowRunScreen(false); });   // 3-244 온라인: 누가 열어도 다 같이
             else treasurePanel.Show(run);
         }
         else if (run.Place == RunPlace.Shop)
@@ -419,6 +437,7 @@ public class BattleScreen : MonoBehaviour
     string SaveFromMenu()
     {
         if (run == null) return "저장할 게임이 없습니다";
+        if (NetPlay) return "온라인 게임은 저장하지 않습니다";   // 3-236
         if (!startedFromTitle) return "테스트 런은 저장하지 않습니다";   // Inspector 로 바로 켠 런 (진짜 저장을 덮어쓰지 않게)
         if (!run.CanSave) return "칸 고르기·지도 화면에서만 저장할 수 있습니다";
         return SaveManager.TrySave(run) ? "저장했습니다 (" + System.DateTime.Now.ToString("HH:mm") + ")" : "저장 실패";
@@ -501,6 +520,9 @@ public class BattleScreen : MonoBehaviour
     //   자바로 치면: int before = target.hp; usePotion(); showEffect(before - target.hp);
     void UsePotionWithVfx(PlayerCombatant user, int index, PlayerCombatant target)
     {
+        if (index < 0 || index >= user.Potions.Count) return;
+        // 3-236 온라인: 명령으로 보냄 (대상 = 동료 자리 번호, 없으면 -1)
+        if (NetIntercept("POT|" + battle.Players.IndexOf(user) + "|" + index + "|" + user.Potions[index] + "|" + (target == null ? -1 : battle.Players.IndexOf(target)))) return;
         string id = user.Potions[index];
         PlayerCombatant who = target ?? user;
         int whoHpBefore = who.Hp;
@@ -508,6 +530,7 @@ public class BattleScreen : MonoBehaviour
         foreach (EnemyCombatant en in battle.Enemies) if (!en.IsDead) enemyHp[en] = en.Hp;
 
         bool used = target == null ? battle.UsePotion(user, index) : battle.UsePotion(user, index, target);
+        if (used) SoundManager.Play("Potion");   // 3-252
         if (!used) return;
         Refresh();
         PotionVfx(id, who, whoHpBefore, enemyHp);
@@ -760,11 +783,98 @@ public class BattleScreen : MonoBehaviour
         placePanel.OpenBoxNow();
     }
 
+    // 3-248: 여럿이면 초소(야영지) 행동도 투표 → 다수결 (동점이면 그중 무작위, 런 seed 로)
+    //   한 PC = P1 → P2 ... 차례로 누름 / 온라인 = 각자 누름 ("CAMPV|자리|행동:대상")
+    private string[] campVotes;
+
     void DoCamp(CampAction action, int target = -1)
     {
+        string key = (int)action + ":" + target;
+        if (run.Players.Count > 1)
+        {
+            if (NetIntercept("CAMPV|" + HomeIndex + "|" + key)) return;
+            int voter = 0;
+            if (campVotes != null) { voter = -1; for (int i = 0; i < campVotes.Length; i++) if (campVotes[i] == null) { voter = i; break; } }
+            ApplyCampVote(voter, key);
+            return;
+        }
+        ExecCamp(action, target);
+    }
+
+    void ExecCamp(CampAction action, int target)
+    {
+        campVotes = null;
+        HideVoteLabel();
+        SoundManager.Play("Rest");   // 3-252: 초소 휴식
         string message = run.DoCamp(action, target);
         ShowRunScreen(false);
         ShowRunMessage(message);
+    }
+
+    static string CampChoiceName(string key, RunState r)
+    {
+        string[] k = key.Split(':');
+        CampAction act = (CampAction)int.Parse(k[0]);
+        int t = int.Parse(k[1]);
+        switch (act)
+        {
+            case CampAction.Heal: return "치료";
+            case CampAction.Fortify: return "장비 보강";
+            case CampAction.Scout: return "정찰";
+            default: return "집중 치료" + (r != null && t >= 0 && t < r.Players.Count ? " (" + r.Players[t].Name + ")" : "");
+        }
+    }
+
+    void ApplyCampVote(int voter, string key)
+    {
+        if (run == null || run.Place != RunPlace.Camp) return;
+        int n = run.Players.Count;
+        if (campVotes == null || campVotes.Length != n) campVotes = new string[n];
+        if (voter < 0 || voter >= n || campVotes[voter] != null) return;
+        campVotes[voter] = key;
+        SoundManager.Play("Vote");   // 3-252
+        Toast(run.Players[voter].Name + " → " + CampChoiceName(key, run));
+        CheckCampVotes();
+    }
+
+    // 3-264: 초소 표가 다 모였는지 확인 → 다 모였으면 다수결 실행
+    //   (따로 뺀 이유: 투표 안 한 사람이 나가도(LEFT) 여기서 다시 확인해야 투표가 끝남)
+    void CheckCampVotes()
+    {
+        if (run == null || run.Place != RunPlace.Camp || campVotes == null) return;
+        int n = campVotes.Length;
+        int need = 0, have = 0, next = -1;
+        for (int i = 0; i < n; i++)
+        {
+            if (NetGate.IsAway(i)) continue;   // 나간 사람은 빼고 셈
+            need++;
+            if (campVotes[i] != null) have++;
+            else if (next < 0) next = i;
+        }
+        if (have == 0) return;   // 아직 아무도 안 냄
+        if (have < need)
+        {
+            if (NetPlay) ShowVoteLabel((HomeIndex < n && campVotes[HomeIndex] != null ? "초소 투표함 · 동료를 기다리는 중" : "초소에서 할 일을 고르세요") + "  (" + have + " / " + need + ")");
+            else ShowVoteLabel(run.Players[next].Name + " " + ClassLibrary.ColoredClassName(run.Players[next].Class) + " 투표 차례  (" + have + " / " + need + ")");
+            return;
+        }
+        // 다수결: 표가 가장 많은 것. 동점이면 그중 무작위 (모든 화면이 같은 seed → 같은 결과)
+        List<string> keys = new List<string>();
+        List<int> counts = new List<int>();
+        foreach (string v in campVotes)
+        {
+            if (v == null) continue;
+            int idx = keys.IndexOf(v);
+            if (idx < 0) { keys.Add(v); counts.Add(1); } else counts[idx]++;
+        }
+        int best = 0;
+        foreach (int c in counts) if (c > best) best = c;
+        List<string> tied = new List<string>();
+        for (int i = 0; i < keys.Count; i++) if (counts[i] == best) tied.Add(keys[i]);
+        string pick = tied.Count == 1 ? tied[0] : tied[voteRng.Next(tied.Count)];
+        if (tied.Count > 1) Toast("동점! 무작위로 → " + CampChoiceName(pick, run));
+        string[] pk = pick.Split(':');
+        ExecCamp((CampAction)int.Parse(pk[0]), int.Parse(pk[1]));
     }
 
     // ---------------- 대장간 (무기 강화) ----------------
@@ -800,7 +910,8 @@ public class BattleScreen : MonoBehaviour
     // 수성 화면에서 카드를 눌렀을 때
     void OnSiegeChoiceClicked(SiegeChoice choice)
     {
-        if (run.Choices.Count <= 1) { GoSiegeChoice(choice); return; }   // 고를 게 하나뿐이면 투표 없이
+        if (NetIntercept("VOTE|" + HomeIndex + "|S|" + run.Choices.IndexOf(choice))) return;   // 3-236 온라인
+        if (run.Choices.Count <= 1) { SoundManager.Play("Click"); GoSiegeChoice(choice); return; }   // 3-267: 투표 없이 갈 때도 누르는 소리   // 고를 게 하나뿐이면 투표 없이
         CastVote(choice, choicePanel.RectOf(choice), o => GoSiegeChoice((SiegeChoice)o));
     }
 
@@ -824,7 +935,8 @@ public class BattleScreen : MonoBehaviour
     // 지도에서 칸을 눌렀을 때
     void OnMapNodeClicked(MapNode node)
     {
-        if (run.Map != null && run.Map.Available().Count <= 1) { GoMapNode(node); return; }   // 갈 곳이 하나뿐이면 투표 없이
+        if (NetIntercept("VOTE|" + HomeIndex + "|M|" + node.Floor + "|" + node.Column)) return;   // 3-236 온라인
+        if (run.Map != null && run.Map.Available().Count <= 1) { SoundManager.Play("Click"); GoMapNode(node); return; }   // 3-267   // 갈 곳이 하나뿐이면 투표 없이
         CastVote(node, mapPanel.RectOf(node), o => GoMapNode((MapNode)o));
     }
 
@@ -835,19 +947,38 @@ public class BattleScreen : MonoBehaviour
     private PartyVote vote;
     private Text voteLabel;
     private bool voteRolling;                       // 룰렛 연출 중 (그동안 클릭 무시)
-    private readonly System.Random voteRng = new System.Random();
+    private System.Random voteRng = new System.Random();
 
     void CastVote(object option, RectTransform target, System.Action<object> go)
     {
-        if (run.Players.Count <= 1) { go(option); return; }
+        if (run.Players.Count <= 1) { SoundManager.Play("Click"); go(option); return; }   // 3-267: 혼자면 투표 소리 대신 누르는 소리
         if (voteRolling) return;
         if (vote == null) vote = new PartyVote(run.Players.Count);
         int voter = vote.NextVoter;
         if (voter < 0) return;
-        vote.Cast(voter, option);
-        if (target != null) AddVoteChip(target, voter, vote.CountFor(option) - 1);
+        ApplyVote(voter, option, target, go);
+    }
 
-        if (!vote.AllVoted)
+    // 표 한 장 넣기 (3-236: 한 PC = 차례대로 / 온라인 = "VOTE" 명령이 온 사람)
+    void ApplyVote(int voter, object option, RectTransform target, System.Action<object> go)
+    {
+        if (vote == null) vote = new PartyVote(run.Players.Count);
+        if (voter < 0 || voter >= vote.Votes.Length || vote.Votes[voter] != null) return;   // 이미 투표함
+        vote.Cast(voter, option);
+        SoundManager.Play("Vote");   // 3-252: 표 넣는 소리
+        if (target != null) AddVoteChip(target, voter, vote.CountFor(option) - 1);
+        voteGo = go;
+        // 3-237: 나간 사람 자리는 채워야 투표가 끝남
+        //   3-269: 예전엔 방금 표를 따라 했는데(3·4명이면 그 표가 한 장 더 생김) → 이제 "빠짐" 으로 채우고 셀 때 뺌
+        foreach (int away in NetGate.Away) vote.Skip(away);
+        FinishVoteIfDone(go);
+    }
+
+    // 3-269: 모두 냈으면(나간 사람은 빠짐) 결과 정하기. 진짜 표가 하나도 없으면 아직 기다림
+    void FinishVoteIfDone(System.Action<object> go)
+    {
+        if (vote == null) return;
+        if (!vote.AllVoted || vote.RealVotes == 0)
         {
             ShowVoteLabel();
             return;
@@ -855,7 +986,7 @@ public class BattleScreen : MonoBehaviour
         bool split;
         object pick = vote.Resolve(voteRng, out split);
         vote = null;
-        if (!split) { HideVoteLabel(); go(pick); return; }
+        if (!split || replaying) { HideVoteLabel(); go(pick); return; }   // 3-249: 다시 계산 중이면 룰렛 연출 없이
         StartCoroutine(VoteRoulette(pick, go));
     }
 
@@ -885,7 +1016,10 @@ public class BattleScreen : MonoBehaviour
             float h = target.rect.height;
             float size = h > 200f ? 62f : 42f;   // 칸 고르기 카드 = 크게 / 지도 칸(작은 동그라미) = 작게
             RectTransform holder = UIFactory.MakeRect("Vote" + voter, target);
-            UIFactory.Place(holder, new Vector2(0f, 1f), new Vector2(0f, 0f), new Vector2(8 + slot * (size + 6), 4), new Vector2(size, size + size * 0.32f));
+            // 3-273: 지도 칸(작은 동그라미)은 3·4명이 같은 칸을 고르면 옆 칸까지 넘어가서 → 2개씩 두 줄로 쌓음
+            Vector2 at = h > 200f ? new Vector2(8 + slot * (size + 6), 4)
+                                  : new Vector2(8 + (slot % 2) * (size + 4), 4 + (slot / 2) * (size * 1.32f + 2));
+            UIFactory.Place(holder, new Vector2(0f, 1f), new Vector2(0f, 0f), at, new Vector2(size, size + size * 0.32f));
             Image img = UIFactory.MakeImage("Icon", holder, Color.white, false);
             img.sprite = icon;
             img.preserveAspect = true;
@@ -937,7 +1071,13 @@ public class BattleScreen : MonoBehaviour
             voteLabel.raycastTarget = false;
             voteLabel.gameObject.AddComponent<Outline>().effectColor = new Color(0, 0, 0, 0.95f);
         }
-        if (text == null && vote != null)
+        if (text == null && vote != null && NetPlay)
+        {
+            // 3-236 온라인: 모두 동시에 투표
+            bool mine = HomeIndex < vote.Votes.Length && vote.Votes[HomeIndex] != null;
+            text = (mine ? "투표함 · 동료를 기다리는 중" : "갈 곳을 고르세요") + "  (" + vote.RealVotes + " / " + vote.Voters + ")";   // 3-269: 나간 사람 빼고
+        }
+        else if (text == null && vote != null)
         {
             int next = vote.NextVoter;
             int done = 0;
@@ -976,6 +1116,16 @@ public class BattleScreen : MonoBehaviour
     // 결과 화면 버튼: 이겼으면 다음 칸으로(보스였으면 새 스테이지), 런이 끝났으면 새 런
     void OnResultButton()
     {
+        // 3-236 온라인: 명령으로 보냄 → 방장이 순서를 정해서 모든 화면이 같은 때에 다음으로
+        //   3-262: 방장만이 아니라 누구나 누를 수 있음 (먼저 도착한 RESULT 하나만 처리, 패배면 그 seed 로 새 런)
+        if (NetPlay && !netExecuting)
+        {
+            if (resultDone) return;
+            NetIntercept("RESULT|" + System.Environment.TickCount);
+            return;
+        }
+        if (resultDone) return;   // 이미 넘어감 (늦게 온 두 번째 RESULT 무시)
+        resultDone = true;
         if (battle.Result == BattleResult.Defeat)
         {
             NewRun();
@@ -986,7 +1136,7 @@ public class BattleScreen : MonoBehaviour
         // 3-213: 이번 승리로 레벨이 오른 사람이 있으면 → 전투 화면에서 그 캐릭터에게 레벨 업 연출 → 그다음 보상·스탯 창
         List<PlayerCombatant> leveled = new List<PlayerCombatant>();
         foreach (PlayerReward r in run.Rewards) if (r.LevelsGained > 0 && r.Player != null) leveled.Add(r.Player);
-        if (leveled.Count > 0 && !run.IsOver)
+        if (leveled.Count > 0 && !run.IsOver && !replaying)   // 3-249: 다시 계산 중이면 레벨 업 연출 건너뜀
         {
             resultPanel.SetActive(false);
             StartCoroutine(LevelUpRoutine(leveled, wasBoss));
@@ -996,7 +1146,7 @@ public class BattleScreen : MonoBehaviour
         {
             // 3-112: 마지막 보스 → 엔딩 화면. [타이틀로] / [새 런]
             resultPanel.SetActive(false);
-            endingPanel.Show(run, ShowTitle, () => { endingPanel.Hide(); NewRun(); });
+            endingPanel.Show(run, EndingToTitle, EndingNewRun);
         }
         else if (run.IsOver) NewRun();
         else ShowRunScreen(wasBoss);
@@ -1023,7 +1173,7 @@ public class BattleScreen : MonoBehaviour
         busy = false;
         if (run.IsOver && run.Cleared)
         {
-            endingPanel.Show(run, ShowTitle, () => { endingPanel.Hide(); NewRun(); });
+            endingPanel.Show(run, EndingToTitle, EndingNewRun);
         }
         else if (run.IsOver) NewRun();
         else ShowRunScreen(wasBoss);
@@ -1079,8 +1229,10 @@ public class BattleScreen : MonoBehaviour
         dragging = null;
         shownPlayer = null;
         resultPanel.SetActive(false);
+        resultDone = false;
         waveSwapping = false;
         shownWaveVersion = battle.WaveVersion;
+        shownShuffle = battle.ShuffleCount;
         arrowTarget = null;
         relicLogSeen = 0;   // 3-208: 새 전투 = 기록 처음부터 확인
 
@@ -1257,6 +1409,7 @@ public class BattleScreen : MonoBehaviour
             img.sprite = Resources.Load<Sprite>("UI/Party/Party_Tile_" + p.Class);
             UIFactory.Stretch(img.rectTransform);
             Button b = img.gameObject.AddComponent<Button>();
+            UIFactory.AddClick(b);   // 3-266: 그림 버튼도 누르는 소리
             b.transition = Selectable.Transition.None;
             b.onClick.AddListener(() => SelectPlayer(index));
             // 가운데 글자: 크게 "P1" + 아래 작게 상태 (끝 / 쓰러짐 / 방N)
@@ -1290,6 +1443,7 @@ public class BattleScreen : MonoBehaviour
     void SelectPlayer(int index)
     {
         if (busy || dragging != null || run == null) return;
+        if (NetPlay && index != HomeIndex) { Toast("온라인에서는 내 캐릭터만 조작할 수 있어요"); return; }   // 3-236
         controlIndex = index;
         bool inBattle = battle != null && battle.Result == BattleResult.Ongoing && mapPanelHidden();
         if (inBattle) Refresh();
@@ -1299,6 +1453,7 @@ public class BattleScreen : MonoBehaviour
     // 턴 종료 후: 아직 턴을 안 끝낸 다른 플레이어로 자동 전환 (한 PC 테스트 편의)
     void SelectNextAvailablePlayer()
     {
+        if (NetPlay) { controlIndex = HomeIndex; return; }   // 3-236 온라인: 나는 항상 내 캐릭터만
         if (battle.CanAct(Me)) return;
         for (int i = 0; i < battle.Players.Count; i++)
         {
@@ -1427,9 +1582,19 @@ public class BattleScreen : MonoBehaviour
         characterSelect.OnBack = ShowTitle;
         characterSelect.OnPlayMulti = StartMulti;
         characterSelect.OnBackMulti = BackToRoom;
+        // 3-236 온라인: 통신 쪽에서 오는 알림
+        NetSession.OnCommand = cmd => netQueue.Enqueue(cmd);
+        NetSession.OnRoomChanged = titlePanel.NetRoomChanged;
+        NetSession.OnClosed = NetClosed;
+        NetGate.Sender = cmd => NetSession.Send(cmd);   // 3-244: 패널들의 명령은 그대로 보냄 (기다림 표시 없음)
+        NetSession.OnReplay = phase =>   // 3-249
+        {
+            if (phase == 0) { replayIncoming = true; replayReady = false; netQueue.Clear(); }
+            else replayReady = true;
+        };
         tutorialPanel = TutorialPanel.Create(root);   // 3-130: 다른 화면들 위 (일시정지 메뉴보다는 아래)
         pauseMenu = PauseMenu.Create(root);   // 맨 마지막: 모든 화면 위
-        pauseMenu.OnTitle = ShowTitle;
+        pauseMenu.OnTitle = () => { LeaveNet(); ShowTitle(); };   // 3-236: 온라인이면 방도 나감
         pauseMenu.OnSave = SaveFromMenu;   // 3-141
         statusGuide = StatusGuidePanel.Create(root);   // 3-215
         compendium = CompendiumPanel.Create(root);   // 3-180 도감 (열 때 SetAsLastSibling 으로 맨 위)
@@ -1474,7 +1639,14 @@ public class BattleScreen : MonoBehaviour
         if (topText != null) topText.rectTransform.sizeDelta = new Vector2(370, topText.rectTransform.sizeDelta.y);
         Toast("개발자 모드 켜짐 (F1)");
     }
-    void OnDestroy() { DevPanel.OnUnlocked -= ShowDevButtons; }   // 화면이 없어질 때 연결 끊기 (자바의 리스너 해제)
+    void HideDevButtons()
+    {
+        if (devButtons != null) devButtons.gameObject.SetActive(false);
+        if (devPanel != null && devPanel.gameObject.activeSelf) devPanel.Toggle();   // F1 창이 열려 있으면 닫음
+        if (topText != null) topText.rectTransform.sizeDelta = new Vector2(1000, topText.rectTransform.sizeDelta.y);
+        Toast("개발자 모드 꺼짐");
+    }
+    void OnDestroy() { DevPanel.OnUnlocked -= ShowDevButtons; DevPanel.OnLocked -= HideDevButtons; }   // 화면이 없어질 때 연결 끊기 (자바의 리스너 해제)
 
     void BuildTopBar()
     {
@@ -1531,7 +1703,12 @@ public class BattleScreen : MonoBehaviour
             Button devBtn = UIFactory.MakeButton("DevButton", devButtons, "개발 F1", UIFactory.Hex("#24402C"), () => devPanel.Toggle(), 18);
             UIFactory.Place((RectTransform)devBtn.transform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-770, -10), new Vector2(130, 44));   // 3-215: [상태] 자리만큼 150 왼쪽
 
-            Button newBtn = UIFactory.MakeButton("NewRun", devButtons, "새 런", UIFactory.Hex("#3A4A2C"), () => NewRun(), 20);
+            Button newBtn = UIFactory.MakeButton("NewRun", devButtons, "새 런", UIFactory.Hex("#3A4A2C"), () =>
+            {
+                // 3-245 온라인: 방장만, 모두 같은 seed 로
+                if (NetPlay) { if (NetSession.IsHost) NetSession.Send("NEWRUN|" + System.Environment.TickCount); else Toast("방장만 쓸 수 있어요"); return; }
+                NewRun();
+            }, 20);
             UIFactory.Place((RectTransform)newBtn.transform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-920, -10), new Vector2(130, 44));
 
             // 테스트 전투 버튼들: 진행 위치는 그대로 두고 그 전투만 바로 해 봄 (HP는 런 그대로)
@@ -1539,13 +1716,19 @@ public class BattleScreen : MonoBehaviour
             {
                 int index = i;   // 람다 안에서 쓰려면 반복 변수를 복사해 둬야 함
                 Button b = UIFactory.MakeButton("Enc" + i, devButtons, TestFightNames[i], UIFactory.Hex("#2C3140"),
-                    () => StartTestBattle(index), 17);
+                    () =>
+                    {
+                        // 3-245 온라인: 방장만, 모두에게 같은 테스트 전투
+                        if (NetPlay) { if (NetSession.IsHost) NetSession.Send("DEVBATTLE|" + index); else Toast("방장만 쓸 수 있어요"); return; }
+                        StartTestBattle(index);
+                    }, 17);
                 UIFactory.Place((RectTransform)b.transform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-1065 - (TestFightNames.Length - 1 - i) * 125, -10), new Vector2(118, 44));
             }
         }
 
         devButtons.gameObject.SetActive(DevPanel.Enabled);
         DevPanel.OnUnlocked += ShowDevButtons;   // 3-205: 숨은 개발자 모드가 켜지면
+        DevPanel.OnLocked += HideDevButtons;     // 3-231: 끄면
 
         // 아티팩트 · 골드 줄 (위쪽 줄 바로 아래 왼쪽)
         relicBar = RelicBar.Create(topBar);
@@ -1927,6 +2110,7 @@ public class BattleScreen : MonoBehaviour
         UIFactory.Stretch(hit.rectTransform);
         hit.raycastTarget = true;
         Button btn = hit.gameObject.AddComponent<Button>();
+        UIFactory.AddClick(btn);   // 3-266: 그림 버튼도 누르는 소리
         btn.transition = Selectable.Transition.None;
         btn.onClick.AddListener(OnResultButton);
         victoryButtonLabel = UIFactory.MakeText("Label", b, "", 34, UIFactory.Hex("#FFE2B0"), TextAnchor.MiddleCenter);
@@ -2054,19 +2238,37 @@ public class BattleScreen : MonoBehaviour
         int partyN = battle.Players.Count;
         float twinScale = twins ? (partyN >= 4 ? 1f : (partyN == 3 ? 1.1f : 1.2f)) : 1f;
         if (twins && n == 2) gap = 400f * twinScale;
+        // 3-274: 잊혀진 왕의 망령(가로 약 580) + 해골 근위병 2 → 기본 간격(270)이면 왕이 근위병을 가림 → 간격을 넓힘
+        //   (오른쪽 끝은 RightmostEnemyX 에 맞춰지고 무리째 왼쪽으로 당겨짐 → 왼쪽 근위병도 플레이어와 안 겹침)
+        bool kingFight = false;
+        foreach (EnemyCombatant ke in battle.Enemies) if (UnitArt.EnemyArtName(ke.Name) == "ForgottenKing") kingFight = true;
+        //   3·4명은 우리 맨 앞 캐릭터가 더 오른쪽에 서서 조금 덜 넓힘 (왼쪽 근위병이 우리 캐릭터와 겹치지 않게)
+        if (kingFight && n == 3) gap = partyN >= 4 ? 330f : (partyN == 3 ? 350f : 380f);
         for (int i = 0; i < n; i++)
         {
             UnitView v = MakeUnitView(battle.Enemies[i], enemyArea, true, Mathf.Min(HpBarW, gap - 24f));   // 3-149: 몬스터가 많으면 옆 칸과 안 겹치게
+            // 3-270: 싱글이면 보스를 조금 크게 (석상은 위 twinScale 그대로)
+            float bodyScale = twinScale;
+            bool wideBoss = false;
+            string bossArt = UnitArt.EnemyArtName(battle.Enemies[i].Name);
+            if (!twins && partyN == 1 && battle.Enemies[i].Rank == EnemyRank.Boss && bossArt != "ForgottenKing")   // 3-274: 왕의 망령은 키우지 않음 (근위병을 가림)
+            {
+                string art = bossArt;
+                wideBoss = art == "AbyssShell" || art == "RiftWatcher";   // 가로로 아주 긴 보스 (폭 약 660)
+                bool small = wideBoss;
+                bodyScale = small ? GameBalance.SoloSmallBossScale : GameBalance.SoloBossScale;
+            }
             // 무리 전체를 오른쪽으로 밀되, 오른쪽 끝 적이 화면 밖/턴 종료 버튼 쪽으로 나가면 무리째 왼쪽으로 당김
             float center = Mathf.Min(EnemyCenterX, RightmostEnemyX - (n - 1) / 2f * gap);
             if (twins && twinScale > 1f) center = Mathf.Min(center, 1630f - (n - 1) / 2f * gap);   // 3-221: 커진 달의 석상이 화면 오른쪽 밖으로 안 나가게
+            if (wideBoss && n == 1) center = Mathf.Min(center, 1440f);   // 3-270: 커진 가로 보스(폭 약 800)가 화면 오른쪽 밖으로 안 나가게
             float x = center + (i - (n - 1) / 2f) * gap;
             UIFactory.Place(v.Rt, Vector2.zero, new Vector2(0.5f, 0f), new Vector2(x, currentFloorY), new Vector2(280, 420));
-            if (twinScale > 1f)
+            if (bodyScale > 1f)
             {
                 // 3-221: 몸만 크게, 체력바·의도 상자 글자는 원래 크기 (플레이어 0.8배 때와 같은 방법을 반대로)
-                v.Rt.localScale = new Vector3(twinScale, twinScale, 1f);
-                float inv = 1f / twinScale;
+                v.Rt.localScale = new Vector3(bodyScale, bodyScale, 1f);
+                float inv = 1f / bodyScale;
                 if (v.HpRoot != null)
                 {
                     v.HpRoot.localScale = new Vector3(inv, inv, 1f);
@@ -2087,6 +2289,13 @@ public class BattleScreen : MonoBehaviour
         }
     }
 
+    // 3-252: 잠깐 뒤에 소리 내기 (자바의 Timer.schedule 같은 역할)
+    IEnumerator PlayLater(string name, float delay)
+    {
+        if (delay > 0f) yield return new WaitForSeconds(delay);
+        SoundManager.Play(name);
+    }
+
     // 다음 웨이브: 쓰러진 적을 잠깐 보여 준 뒤 새 적으로 바꿈
     IEnumerator WaveSwapRoutine()
     {
@@ -2100,6 +2309,7 @@ public class BattleScreen : MonoBehaviour
         busy = false;
         Refresh();
         Toast("웨이브 " + battle.WaveNumber + " / " + battle.WaveCount + "  ·  적이 몰려온다!");
+        SoundManager.Play("WaveIn");   // 3-252
         Shake(0.3f, 12f);
     }
 
@@ -2339,6 +2549,9 @@ public class BattleScreen : MonoBehaviour
             : "테스트 전투";
         string wave = battle.WaveCount > 1 ? "   웨이브 " + battle.WaveNumber + "/" + battle.WaveCount : "";
         topText.text = run.Stage + "스테이지 " + where + wave + "   " + battle.Round + "턴" + who + DiffTag();
+
+        // 3-252: 버린 카드를 섞었으면 섞는 소리
+        if (battle.ShuffleCount != shownShuffle) { shownShuffle = battle.ShuffleCount; SoundManager.Play("Shuffle"); }
 
         // 웨이브가 바뀌었으면 적 칸을 새로 만들기 (쓰러진 적을 잠깐 보여 준 뒤)
         if (battle.WaveVersion != shownWaveVersion && !waveSwapping)
@@ -3153,7 +3366,7 @@ public class BattleScreen : MonoBehaviour
             case PlayerClass.BlackScythe: SoundManager.Play("Slash", "Hit"); break;
             case PlayerClass.CosmicPhoenix: SoundManager.Play("Fire", "Hit"); break;
             case PlayerClass.FrostMage: SoundManager.Play(card.IsLightning ? "Lightning" : "Ice", "Hit"); break;
-            case PlayerClass.Sniper: SoundManager.Play(card.IsBayonet ? "Slash" : "Gun", "Hit"); break;
+            case PlayerClass.Sniper: if (card.IsBayonet) SoundManager.Play("Slash1", "Slash", "Hit"); else SoundManager.Play("Gun", "Hit"); break;   // 3-238: 총검술 = Slash1 (실비아 전용 베기)
         }
         if (HasOwnAttackFx(id)) return;   // 3-197: 카드 전용 이펙트가 대신 나옴 (소리는 위에서 이미 냄)
         foreach (EnemyCombatant en in hit)
@@ -3245,6 +3458,7 @@ public class BattleScreen : MonoBehaviour
                     // 3-208: 소멸 = 가운데에 보여 준 뒤 보랏빛 불에 타서 재가 됨
                     VfxPart burn = Vfx.Art(handRoot, "Fx_CardBurn", CardView.ShowcasePos, 340f, 0f, 0.9f, 0.7f, 1f, 1.1f, 0.2f, 0.45f);
                     if (burn != null) burn.Delay = v.Data == lastPlayed ? GameBalance.FxCardShowTime : 0f;
+                    StartCoroutine(PlayLater("Exhaust", v.Data == lastPlayed ? GameBalance.FxCardShowTime : 0f));   // 3-252: 불에 타는 순간에 맞춰
                 }
                 Vector2 dest = toDiscard ? LocalOf(discardPile) : CardView.ShowcasePos;
                 if (v.Data == lastPlayed) v.CastColor = slashColor;   // 3-182: 카드 사용 빛 = 직업 색 (검은 낫 보라, 피닉스 주황, 마도사 하늘, 스나이퍼 진홍)
@@ -3342,6 +3556,455 @@ public class BattleScreen : MonoBehaviour
         });
     }
 
+    // ==================== 3-236 온라인 멀티 (1차) ====================
+    //   모든 화면이 같은 seed 로 시작하고, 같은 명령을 같은 순서로 실행 → 같은 게임 (NetSession 설명 참고)
+    //   내가 뭘 하면: NetIntercept 가 명령 글자를 만들어 보내고 그 자리에서는 실행하지 않음
+    //   "DO" 로 돌아온 명령은 netQueue 에 쌓였다가 PumpNet 이 연출이 없을 때 하나씩 실행 (DispatchNet)
+    //   자바로 치면: 이벤트 큐(BlockingQueue)에서 하나씩 꺼내 처리하는 게임 루프
+    private readonly Queue<string> netQueue = new Queue<string>();
+    private bool netGame;            // 온라인 런을 하는 중
+    private int netSeed;             // 방장이 정한 seed
+    private bool netExecuting;       // 지금 "DO" 명령을 실행하는 중 (이때는 다시 보내지 않고 진짜 실행)
+    private bool netPending;         // 내 명령을 보내고 돌아오기를 기다리는 중 (연타 막기)
+    private float netPendingTimer;
+    private bool netHold;            // 화면 전환(소용돌이) 중 → 다음 명령은 전환이 끝난 뒤에
+    private float netHoldTimer;
+    // 3-237: 게임 중에 나간 사람 (자리 번호). 그 캐릭터는 방장이 대신 턴을 넘기고, 투표는 다른 사람 표를 따라감
+    private float netAutoTimer;      // 방장: 나간 사람 턴 넘기기를 너무 자주 보내지 않게
+    private CardView netHiddenCard;  // 3-237: 보낸 카드 (돌아올 때까지 손패에서 숨김 → 바로 쓴 것처럼 보임)
+    private System.Action<object> voteGo;   // 3-237: 지금 투표가 끝나면 갈 곳 (나간 사람 처리용)
+    // 3-249 다시 들어오기: 방장이 보낸 기록을 다 받으면 한꺼번에 빠르게 다시 계산
+    private bool replayIncoming, replayReady, replaying;
+
+    bool NetPlay { get { return netGame && NetSession.Online; } }
+    int HomeIndex { get { return NetPlay ? Mathf.Max(0, NetSession.LocalSlot) : 0; } }   // 내가 조작하는 캐릭터 번호
+
+    // 내 캐릭터인지 (안내 문구를 내 화면에만 띄울 때)
+    bool IsLocal(PlayerCombatant p)
+    {
+        if (!NetPlay || run == null) return true;
+        return run.Players.IndexOf(p) == HomeIndex;
+    }
+
+    // 온라인이면 명령을 보내고 true (= 여기서는 실행하지 말 것). 한 PC 이거나 "DO" 실행 중이면 false
+    bool NetIntercept(string command)
+    {
+        if (!NetPlay || netExecuting) return false;
+        if (netPending) { Toast("잠깐만요 · 통신 중"); return true; }
+        netPending = true;
+        netPendingTimer = 3f;
+        NetSession.Send(command);
+        return true;
+    }
+
+    void HoldNet()
+    {
+        netHold = true;
+        netHoldTimer = 6f;   // 혹시 전환이 안 끝나도 6초 뒤에는 풀림
+    }
+
+    void PumpNet()
+    {
+        float udt = Time.unscaledDeltaTime;
+        // 3-264 안전장치: 다시 계산(재접속)이 끝났는데 소리가 꺼진 채로 남아 있으면 다시 켬
+        //   (소리가 꺼져 있으면 SoundManager 가 효과음을 아예 안 내서 버튼 소리가 안 들림)
+        if (!replaying && !replayIncoming && AudioListener.pause && !WebQuit.Quitting)
+        {
+            AudioListener.pause = false;
+            Debug.LogWarning("[소리] 꺼진 채로 남아 있던 소리를 다시 켬");
+        }
+        // 3-244: 화면(패널)들이 쓰는 온라인 문 (NetGate) 값 맞추기
+        NetGate.Active = NetPlay;
+        NetGate.Me = HomeIndex;
+        NetGate.IsHost = NetSession.IsHost;
+        if (replayIncoming) { if (replayReady) RunReplay(); return; }   // 3-249: 기록을 다 받을 때까지 기다렸다가 한꺼번에
+        if (netPending) { netPendingTimer -= udt; if (netPendingTimer <= 0f) { netPending = false; ShowHiddenCard(); if (BattleLive) Refresh(); } }
+        if (netHold) { netHoldTimer -= udt; if (netHoldTimer <= 0f) netHold = false; }
+        int guard = 0;
+        while (netQueue.Count > 0 && !netHold && !busy && !voteRolling && !waveSwapping && dragging == null && guard++ < 20)
+        {
+            string command = netQueue.Dequeue();
+            netExecuting = true;
+            NetGate.Executing = true;
+            try { DispatchNet(command); }
+            catch (System.Exception e) { Debug.LogError("[온라인] 명령 처리 오류: " + command + "\n" + e); }
+            finally { netExecuting = false; NetGate.Executing = false; }
+        }
+
+        // 3-237 방장: 나간 사람의 턴을 대신 넘김 (명령으로 보내서 모든 화면이 같은 순서로)
+        netAutoTimer -= udt;
+        if (NetPlay && NetSession.IsHost && NetGate.Away.Count > 0 && netQueue.Count == 0 && !busy && BattleLive && mapPanelHidden() && netAutoTimer <= 0f)
+        {
+            foreach (int slot in NetGate.Away)
+            {
+                if (slot < 0 || slot >= battle.Players.Count || !battle.CanAct(battle.Players[slot])) continue;
+                NetSession.Send("END|" + slot);
+                netAutoTimer = 1f;
+                break;
+            }
+        }
+    }
+
+    // 3-264: 오류가 나도 게임이 멈추지 않게 감싸서 실행 (자바의 try { r.run(); } catch (Exception e) { ... })
+    static void NetSafe(System.Action action)
+    {
+        try { action(); }
+        catch (System.Exception e) { Debug.LogError("[온라인] 나간 사람 처리 중 오류: " + e); }
+    }
+
+    // 3-249: 받은 기록(START 부터 지금까지의 명령)을 연출 없이 한꺼번에 실행 → 방장·동료와 같은 상태
+    void RunReplay()
+    {
+        replayIncoming = false;
+        replayReady = false;
+        replaying = true;
+        AudioListener.pause = true;   // 다시 계산하는 동안 소리 끔
+        int count = netQueue.Count;
+        while (netQueue.Count > 0)
+        {
+            string command = netQueue.Dequeue();
+            NetGate.Active = NetPlay;
+            NetGate.Me = HomeIndex;
+            netExecuting = true;
+            NetGate.Executing = true;
+            try { DispatchNet(command); }
+            catch (System.Exception e) { Debug.LogError("[온라인] 다시 계산 중 오류: " + command + "\n" + e); }
+            finally { netExecuting = false; NetGate.Executing = false; }
+        }
+        replaying = false;
+        // 다시 계산하면서 시작된 연출을 모두 멈추고, 지금 화면을 새로 그림
+        StopAllCoroutines();
+        busy = false;
+        waveSwapping = false;
+        voteRolling = false;
+        dimTarget = 0f;
+        Time.timeScale = 1f;
+        AudioListener.pause = false;
+        netHold = false;
+        netPending = false;
+        if (battle != null && mapPanelHidden() && !rewardPanel.gameObject.activeSelf && !levelUpPanel.IsOpen && !altarPanel.IsOpen)
+            StartBattleView(battle);   // 전투 화면이면 캐릭터·적·손패를 지금 상태로 다시 만듦
+        relicBar.Show(InfoPlayer());
+        Debug.Log("[온라인] 다시 들어오기: 명령 " + count + "개를 다시 계산함");
+    }
+
+    void ShowHiddenCard()
+    {
+        if (netHiddenCard != null) netHiddenCard.gameObject.SetActive(true);
+        netHiddenCard = null;
+    }
+
+    bool BattleLive { get { return battle != null && battle.Result == BattleResult.Ongoing; } }
+
+    PlayerCombatant NetPlayer(string slotText)
+    {
+        int slot = int.Parse(slotText);
+        if (battle == null || slot < 0 || slot >= battle.Players.Count) return null;
+        return battle.Players[slot];
+    }
+
+    // 손패 번호 + 카드 Id 로 카드 찾기 (그 사이 손패가 바뀌었으면 같은 Id 의 첫 카드)
+    static int FindCard(PlayerCombatant p, int index, string id)
+    {
+        if (p == null) return -1;
+        if (index >= 0 && index < p.Hand.Count && p.Hand[index].Id == id) return index;
+        for (int i = 0; i < p.Hand.Count; i++) if (p.Hand[i].Id == id) return i;
+        return -1;
+    }
+
+    void DispatchNet(string command)
+    {
+        string[] a = command.Split('|');
+        // 내가 보낸 명령이 돌아왔으면 "기다리는 중" 풀기
+        if (a.Length > 1 && (a[0] == "PLAY" || a[0] == "SEAL" || a[0] == "DISC" || a[0] == "POT" || a[0] == "END" || a[0] == "VOTE" || a[0] == "CAMPV"))
+        {
+            int who;
+            if (int.TryParse(a[1], out who) && who == HomeIndex) { netPending = false; ShowHiddenCard(); }
+        }
+        if (a[0] == "RESULT") netPending = false;
+
+        switch (a[0])
+        {
+            case "GOSELECT":
+            {
+                // 방장이 [캐릭터 선택] → 모두 캐릭터 선택 화면으로
+                int n = int.Parse(a[1]);
+                string code = a.Length > 2 ? a[2] : NetSession.Code;
+                NetSession.GameStarted = true;
+                HoldNet();
+                ScreenTransition.Play(this, () =>
+                {
+                    titlePanel.Hide();
+                    characterSelect.Str = str;
+                    characterSelect.Con = con;
+                    characterSelect.Agi = agi;
+                    characterSelect.ShowOnline(n, code);
+                    lastRoomCode = code;
+                    netHold = false;
+                });
+                break;
+            }
+            case "PICK":
+                characterSelect.ApplyNetPick(int.Parse(a[1]), int.Parse(a[2]));
+                break;
+            case "START":
+            {
+                // 방장이 난이도까지 고름 → 모두 같은 seed·직업·난이도로 새 런
+                if (netGame && run != null) break;   // 두 번 온 시작은 무시
+                int seedValue = int.Parse(a[1]);
+                Difficulty d = (Difficulty)int.Parse(a[2]);
+                List<PlayerClass> classes = new List<PlayerClass>();
+                foreach (string c in a[3].Split(',')) classes.Add((PlayerClass)int.Parse(c));
+                netGame = true;
+                netSeed = seedValue;
+                NetGate.Away.Clear();
+                // 3-271: 캐릭터 선택·난이도 화면은 소용돌이가 화면을 찍은 "뒤에" 숨김 (싱글과 같은 순서)
+                //   예전엔 먼저 숨겨서, 찍힌 화면에 그 뒤에 있던 옛 화면(타이틀·지난 판)이 잠깐 보였음
+                System.Action begin = () =>
+                {
+                    characterSelect.Hide();
+                    difficultyPanel.Hide();
+                    titlePanel.Hide();
+                    runDifficulty = d;
+                    runClasses = classes;
+                    startedFromTitle = true;
+                    NewRun();
+                    netHold = false;
+                };
+                if (replaying) { begin(); break; }   // 3-249 다시 들어오기: 화면 전환 없이 바로
+                HoldNet();
+                ScreenTransition.Play(this, begin);
+                break;
+            }
+            case "VOTE":
+            {
+                if (run == null) break;
+                int voter = int.Parse(a[1]);
+                if (a[2] == "S")
+                {
+                    if (!choicePanel.gameObject.activeSelf || BattleLive && mapPanelHidden()) break;   // 이미 출발했으면 늦게 온 표는 무시
+                    int idx = int.Parse(a[3]);
+                    if (idx < 0 || idx >= run.Choices.Count) break;
+                    SiegeChoice choice = run.Choices[idx];
+                    if (run.Choices.Count <= 1) { GoSiegeChoice(choice); break; }   // 고를 게 하나뿐이면 투표 없이
+                    ApplyVote(voter, choice, choicePanel.RectOf(choice), o => GoSiegeChoice((SiegeChoice)o));
+                }
+                else
+                {
+                    if (run.Map == null || !mapPanel.gameObject.activeSelf) break;
+                    int floor = int.Parse(a[3]), column = int.Parse(a[4]);
+                    List<MapNode> avail = run.Map.Available();
+                    MapNode node = null;
+                    foreach (MapNode m in avail) if (m.Floor == floor && m.Column == column) node = m;
+                    if (node == null) break;
+                    if (avail.Count <= 1) { GoMapNode(node); break; }
+                    ApplyVote(voter, node, mapPanel.RectOf(node), o => GoMapNode((MapNode)o));
+                }
+                break;
+            }
+            case "PLAY":
+            {
+                if (!BattleLive) break;
+                PlayerCombatant p = NetPlayer(a[1]);
+                int idx = FindCard(p, int.Parse(a[2]), a[3]);
+                if (idx < 0) break;
+                int ti = int.Parse(a[4]);
+                EnemyCombatant target = (ti >= 0 && ti < battle.Enemies.Count) ? battle.Enemies[ti] : null;
+                ExecPlayCard(p, idx, target);
+                break;
+            }
+            case "SEAL":
+            {
+                if (!BattleLive) break;
+                PlayerCombatant p = NetPlayer(a[1]);
+                int idx = FindCard(p, int.Parse(a[2]), a[3]);
+                if (idx >= 0) DoSeal(p, idx, a[3]);
+                break;
+            }
+            case "DISC":
+            {
+                if (!BattleLive) break;
+                PlayerCombatant p = NetPlayer(a[1]);
+                int idx = FindCard(p, int.Parse(a[2]), a[3]);
+                if (idx >= 0) DoDiscardPick(p, idx, a[3]);
+                break;
+            }
+            case "POT":
+            {
+                if (!BattleLive) break;
+                PlayerCombatant user = NetPlayer(a[1]);
+                if (user == null) break;
+                int idx = int.Parse(a[2]);
+                if (idx < 0 || idx >= user.Potions.Count || user.Potions[idx] != a[3]) idx = user.Potions.IndexOf(a[3]);
+                if (idx < 0) break;
+                int ts = int.Parse(a[4]);
+                PlayerCombatant target = (ts >= 0 && ts < battle.Players.Count) ? battle.Players[ts] : null;
+                UsePotionWithVfx(user, idx, target);
+                break;
+            }
+            case "END":
+            {
+                if (!BattleLive) break;
+                PlayerCombatant p = NetPlayer(a[1]);
+                if (p != null) DoEndTurn(p);
+                break;
+            }
+            case "RESULT":
+                if (battle == null || battle.Result == BattleResult.Ongoing || resultDone) break;   // 3-262: 두 번째로 온 건 무시
+                netSeed = int.Parse(a[1]);   // 패배 → 새 런이면 이 seed
+                OnResultButton();
+                break;
+            // ---------------- 3-244 2·3차: 전투 뒤 화면들 ----------------
+            case "RWD": rewardPanel.ApplyPick(int.Parse(a[1]), a[2], int.Parse(a[3])); break;
+            case "RWDC": rewardPanel.ApplyClose(); break;
+            case "LVL": levelUpPanel.ApplyNet(int.Parse(a[1]), int.Parse(a[2]), int.Parse(a[3]), int.Parse(a[4])); break;
+            case "TRS": treasurePanel.ApplyPick(int.Parse(a[1]), int.Parse(a[2])); break;
+            case "TRSR": treasurePanel.ApplyResolve(); break;
+            case "TRSD": treasurePanel.ApplyDone(); break;
+            case "BUY": if (shopPanel.gameObject.activeSelf) shopPanel.ApplyBuy(int.Parse(a[1]), int.Parse(a[2])); break;
+            case "SELL": if (shopPanel.gameObject.activeSelf) shopPanel.ApplySell(int.Parse(a[1]), int.Parse(a[2])); break;
+            case "SHOPL": shopPanel.ApplyLeave(int.Parse(a[1])); break;
+            case "FORGE": forgePanel.ApplyForge(int.Parse(a[1]), a[2], int.Parse(a[3])); break;
+            case "FLEAVE": forgePanel.ApplyLeaveReady(int.Parse(a[1])); break;
+            case "ALTO": altarPanel.ApplyOffer(int.Parse(a[1]), a.Length > 2 ? a[2] : ""); break;
+            case "ALTT": altarPanel.ApplyTake(int.Parse(a[1]), int.Parse(a[2])); break;
+            case "ALTS": altarPanel.ApplySkip(int.Parse(a[1])); break;
+            case "CAMP":   // (예전 방식, 남겨 둠)
+                if (run != null && run.Place == RunPlace.Camp) ExecCamp((CampAction)int.Parse(a[1]), int.Parse(a[2]));
+                break;
+            case "CAMPV":  // 3-248 초소 투표
+                ApplyCampVote(int.Parse(a[1]), a[2]);
+                break;
+            case "CHEST":
+                if (run != null && run.Place == RunPlace.Treasure && !run.TreasureOpened) { SoundManager.Play("ChestOpen", "RelicGet"); run.OpenTreasure(); ShowRunScreen(false); }   // 3-253: 상자 여는 소리 (파일이 없으면 RelicGet)
+                break;
+            case "DEVBATTLE":   // 3-245: 개발자 테스트 전투 (방장)
+                if (run != null) StartTestBattle(int.Parse(a[1]));
+                break;
+            case "DEVWIN":      // 3-245: 개발자 즉시 승리 (방장)
+                if (BattleLive) { battle.DevWin(); DevRefresh(); }
+                break;
+            case "DEVB":        // 3-246: 개발 도구 버튼 (모두에게 같이)
+                devPanel.RunNet(a[1], int.Parse(a[2]));
+                break;
+            case "DEVL":        // 3-246: 개발 도구 카드·아티팩트 넣기
+                devPanel.RunNetList(a[1], int.Parse(a[2]));
+                break;
+            case "NEWRUN":
+                if (a.Length > 2 && a[2] == "E" && !endingPanel.gameObject.activeSelf) break;   // 3-263: 엔딩에서 두 사람이 같이 누름 → 한 번만
+                netSeed = int.Parse(a[1]);
+                endingPanel.Hide();
+                NewRun();
+                break;
+            case "BACK":   // 3-249: 끊겼던 사람이 같은 코드로 다시 들어옴 → 그 자리 자동 진행 끄기
+            {
+                int slot = int.Parse(a[1]);
+                NetGate.Away.Remove(slot);
+                SoundManager.Play("PlayerJoin");   // 3-252
+                if (run != null && slot >= 0 && slot < run.Players.Count)
+                    Toast(slot == HomeIndex ? "다시 들어왔습니다! 이어서 하세요" : run.Players[slot].Name + " 다시 들어옴");
+                break;
+            }
+            case "LEFT":
+            {
+                int slot = int.Parse(a[1]);
+                if (run == null)
+                {
+                    // 캐릭터 선택 중에 나감 → 모두 처음으로 (다시 방을 만들어서 시작)
+                    LeaveNet();
+                    ShowTitle();
+                    titlePanel.ShowNetClosed("P" + (slot + 1) + "의 연결이 끊겨서 방을 닫았습니다");
+                    break;
+                }
+                // 3-237 게임 중: 게임은 계속. 나간 사람 캐릭터는 방장이 대신 턴을 넘기고, 투표는 다른 사람 표를 따라감
+                NetGate.Away.Add(slot);
+                SoundManager.Play("PlayerLeave");   // 3-252
+                Toast("P" + (slot + 1) + " 연결 끊김 · 그 캐릭터는 자동으로 턴을 넘깁니다");
+                // 3-244: 지금 열려 있는 화면이 나간 사람을 기다리고 있었으면 풀어 줌 (모든 화면에서 같은 때에)
+                //   3-264: 하나가 오류가 나도 나머지는 꼭 실행되게 하나씩 따로 감쌈 (예전엔 보물 쪽 오류로 아래가 다 건너뛰어졌음)
+                NetSafe(rewardPanel.NetSkipAway);
+                NetSafe(levelUpPanel.NetCheckDone);
+                NetSafe(treasurePanel.NetPickForAway);
+                NetSafe(shopPanel.NetCheckLeave);
+                NetSafe(forgePanel.NetCheckAllDone);
+                NetSafe(altarPanel.NetCheckDone);
+                NetSafe(CheckCampVotes);   // 3-264: 초소 투표 중이었으면 남은 사람 표로 끝냄
+                if (vote != null && voteGo != null && slot < vote.Votes.Length && vote.Votes[slot] == null)
+                {
+                    vote.Skip(slot);              // 3-269: 나간 사람은 "빠짐" (남의 표를 따라 하지 않음)
+                    FinishVoteIfDone(voteGo);     // 남은 사람이 다 냈으면 그 표들로 결과
+                }
+                break;
+            }
+        }
+    }
+
+    // 3-244 엔딩: [타이틀로] = 나만 나감 / [새 런] = 온라인이면 방장이 새 seed 로 모두 새 런
+    void EndingToTitle()
+    {
+        LeaveNet();
+        ShowTitle();
+    }
+
+    void EndingNewRun()
+    {
+        if (NetPlay)
+        {
+            // 3-263: 방장만이 아니라 누구나 (끝에 "E" = 엔딩 화면에서 누름 → 엔딩 화면이 열려 있을 때만 처리, 두 번째는 무시)
+            NetSession.Send("NEWRUN|" + System.Environment.TickCount + "|E");
+            return;
+        }
+        endingPanel.Hide();
+        NewRun();
+    }
+
+    // 방장이 캐릭터 선택에서 [게임 시작] → 방장만 난이도 화면 → 고르면 START 명령
+    void OpenDifficultyOnline(List<PlayerClass> classes)
+    {
+        if (!NetSession.IsHost) return;
+        characterSelect.Hide();
+        difficultyPanel.Show(classes.Count, runDifficulty, (d) =>
+        {
+            List<string> parts = new List<string>();
+            foreach (PlayerClass c in classes) parts.Add(((int)c).ToString());
+            NetSession.Send("START|" + System.Environment.TickCount + "|" + (int)d + "|" + string.Join(",", parts.ToArray()));
+        }, () =>
+        {
+            difficultyPanel.Hide();
+            characterSelect.gameObject.SetActive(true);   // 고른 상태 그대로 다시 보임
+        });
+    }
+
+    // 연결을 끊고 온라인 상태를 모두 지움
+    void LeaveNet()
+    {
+        if (NetSession.Online) NetSession.Leave();
+        NetGate.Active = false;
+        NetGate.Away.Clear();
+        ShowHiddenCard();
+        netGame = false;
+        netQueue.Clear();
+        netPending = false;
+        netHold = false;
+    }
+
+    // 상대 쪽에서 연결이 끊김 (방장이 나감 등) → 타이틀 + 이유
+    void NetClosed(string reason)
+    {
+        bool wasNetGame = netGame;   // 3-249: 아래에서 netGame 을 지우기 전에 기억
+        NetGate.Active = false;
+        NetGate.Away.Clear();
+        ShowHiddenCard();
+        netGame = false;
+        netQueue.Clear();
+        netPending = false;
+        netHold = false;
+        // 3-248: 혼자 하는 게임 중이면 화면은 그대로 (지난 온라인 방이 뒤에서 끊긴 것뿐)
+        if (run != null && !wasNetGame && !characterSelect.gameObject.activeSelf) return;
+        ShowTitle();
+        titlePanel.ShowNetClosed(reason);
+    }
+
     // ==================== 3-190 사운드: 지금 화면에 맞는 배경음 ====================
     // 매 프레임 "지금 어떤 곡이어야 하는지"만 알려 줌. 곡이 바뀔 때만 SoundManager 가 크로스페이드
     //   Title(타이틀·캐릭터 선택) / Battle(전투) / Boss(보스 전투) / Shop(상점) / Rest(야영지·대장간) / Map(지도·선택지) / Ending(엔딩)
@@ -3354,9 +4017,18 @@ public class BattleScreen : MonoBehaviour
         else if (resultPanel.activeSelf) want = "";
         else if (battle != null && battle.Result == BattleResult.Ongoing && mapPanelHidden())
         {
-            bool boss = false;
-            foreach (EnemyCombatant e in battle.Enemies) if (e.Rank == EnemyRank.Boss) boss = true;
-            want = boss ? "Boss" : "Battle";
+            bool boss = false, elite = false;
+            foreach (EnemyCombatant e in battle.Enemies)
+            {
+                if (e.IsDead) continue;
+                if (e.Rank == EnemyRank.Boss) boss = true;
+                else if (e.Rank == EnemyRank.Elite) elite = true;
+            }
+            // 3-250: 보스 = 스테이지마다 다른 곡 (Boss1~Boss4, 없으면 Boss) / 엘리트 = Elite (없으면 Battle)
+            //   엘리트가 뒤 웨이브에 나오면 그때 곡이 바뀜
+            if (boss) { string b = "Boss" + Mathf.Clamp(run.Stage, 1, GameBalance.MaxStage); want = SoundManager.HasBgm(b) ? b : "Boss"; }
+            else if (elite) want = SoundManager.HasBgm("Elite") ? "Elite" : "Battle";
+            else want = "Battle";
         }
         else if (run.Place == RunPlace.Shop) want = "Shop";
         else if (run.Place == RunPlace.Camp || run.Place == RunPlace.Forge) want = "Rest";
@@ -3378,6 +4050,7 @@ public class BattleScreen : MonoBehaviour
             DiscoveryStore.SaveIfDirty();
         }
         HandleKeys();
+        PumpNet();   // 3-236 온라인 명령 처리
         LayoutHand();
 
         // 적 의도 상자: 둥실둥실 (적마다 박자가 조금씩 다르게)
@@ -3542,7 +4215,7 @@ public class BattleScreen : MonoBehaviour
         {
             Vector2 sealLocal;
             RectTransformUtility.ScreenPointToLocalPointInRectangle(handRoot, e.position, null, out sealLocal);
-            if (sealLocal.y > 250f && index >= 0 && battle.SealCard(p, index)) Toast("[" + card.Data.Name + "] 봉인! 다음 턴에 에너지 -1로 돌아옴");
+            if (sealLocal.y > 250f && index >= 0) DoSeal(p, index, card.Data.Id);
             Refresh();
             return;
         }
@@ -3552,35 +4225,71 @@ public class BattleScreen : MonoBehaviour
         {
             Vector2 dLocal;
             RectTransformUtility.ScreenPointToLocalPointInRectangle(handRoot, e.position, null, out dLocal);
-            int gain = p.PendingDiscardPick;
-            if (dLocal.y > 250f && index >= 0 && battle.DiscardPick(p, index)) Toast("[" + card.Data.Name + "] 버림! " + p.ManaName + " +" + gain);
+            if (dLocal.y > 250f && index >= 0) DoDiscardPick(p, index, card.Data.Id);
             Refresh();
             return;
         }
 
-        // 필살기 연출 판단용: 카드를 쓰기 전 적 HP 기억
-        Dictionary<EnemyCombatant, int> hpBefore = new Dictionary<EnemyCombatant, int>();
-        foreach (EnemyCombatant en in battle.Enemies) hpBefore[en] = en.Hp;
-
-        bool played = false;
-        if (dragNeedsTarget)
-        {
-            if (target != null && index >= 0) played = battle.PlayCard(p, index, target);
-        }
+        bool want;
+        if (dragNeedsTarget) want = target != null && index >= 0;
         else
         {
             // 손패 영역보다 위(기준점에서 250 이상)로 끌어올렸으면 사용
             Vector2 local;
             RectTransformUtility.ScreenPointToLocalPointInRectangle(handRoot, e.position, null, out local);
-            if (local.y > 250f && index >= 0) played = battle.PlayCard(p, index, null);
+            want = local.y > 250f && index >= 0;
         }
+        if (!want) { Refresh(); return; }   // 안 썼으면 카드는 원래 자리로 돌아감
+        if (!dragNeedsTarget) target = null;
+        if (battle.EffectiveCost(p, card.Data) > p.Energy) SoundManager.Play("NoEnergy");   // 3-252: 에너지 부족 (내 화면에서만)
 
-        if (!played) { Refresh(); return; }   // 안 썼으면 카드는 원래 자리로 돌아감
+        // 3-236 온라인: 바로 쓰지 않고 방장에게 보냄 → "DO" 로 돌아오면 모든 화면에서 같이 실행
+        if (NetIntercept("PLAY|" + battle.Players.IndexOf(p) + "|" + index + "|" + card.Data.Id + "|" + (target == null ? -1 : battle.Enemies.IndexOf(target))))
+        {
+            // 3-237: 통신이 왔다 갔다 하는 동안 카드가 손패로 돌아갔다가 쓰이는 게 "렉"처럼 보여서 → 보낸 카드는 잠깐 숨김
+            if (netPending) { netHiddenCard = card; card.gameObject.SetActive(false); }
+            else Refresh();
+            return;
+        }
+        ExecPlayCard(p, index, target);
+    }
+
+    // 영혼 봉인 실행 (3-236: 온라인이면 명령으로 보냄)
+    void DoSeal(PlayerCombatant p, int index, string cardId)
+    {
+        if (NetIntercept("SEAL|" + battle.Players.IndexOf(p) + "|" + index + "|" + cardId)) return;
+        CardData data = p.Hand[index];
+        if (battle.SealCard(p, index) && IsLocal(p)) Toast("[" + data.Name + "] 봉인! 다음 턴에 에너지 -1로 돌아옴");
+        Refresh();
+    }
+
+    // 전술 후퇴 버리기 실행
+    void DoDiscardPick(PlayerCombatant p, int index, string cardId)
+    {
+        if (NetIntercept("DISC|" + battle.Players.IndexOf(p) + "|" + index + "|" + cardId)) return;
+        CardData data = p.Hand[index];
+        int gain = p.PendingDiscardPick;
+        if (battle.DiscardPick(p, index) && IsLocal(p)) Toast("[" + data.Name + "] 버림! " + p.ManaName + " +" + gain);
+        Refresh();
+    }
+
+    // 카드 사용 실행 + 연출 (3-236: 내 카드든 동료 카드든 같은 함수. 온라인이면 동료 카드도 내 화면에서 연출됨)
+    void ExecPlayCard(PlayerCombatant p, int index, EnemyCombatant target)
+    {
+        if (p == null || index < 0 || index >= p.Hand.Count) { Refresh(); return; }
+        CardData data = p.Hand[index];
+
+        // 필살기 연출 판단용: 카드를 쓰기 전 적 HP 기억
+        Dictionary<EnemyCombatant, int> hpBefore = new Dictionary<EnemyCombatant, int>();
+        foreach (EnemyCombatant en in battle.Enemies) hpBefore[en] = en.Hp;
+
+        bool played = battle.PlayCard(p, index, target);
+        if (!played) { Refresh(); return; }
 
         // 썼으면: 카드는 바로 가운데로 → 공격 카드면 캐릭터가 돌진 → 돌진이 닿을 때쯤 피해 표시
-        lastPlayed = card.Data;
-        if (p.PendingSealPick) Toast("봉인할 카드를 위로 끌어올리세요");
-        if (p.PendingDiscardPick > 0) Toast("버릴 카드를 위로 끌어올리세요 (탄환 +" + p.PendingDiscardPick + ")");
+        lastPlayed = data;
+        if (p.PendingSealPick && IsLocal(p)) Toast("봉인할 카드를 위로 끌어올리세요");
+        if (p.PendingDiscardPick > 0 && IsLocal(p)) Toast("버릴 카드를 위로 끌어올리세요 (탄환 +" + p.PendingDiscardPick + ")");
         switch (p.Class)   // 공격 이펙트 색 (직업마다)
         {
             case PlayerClass.CosmicPhoenix: slashColor = UIFactory.Hex("#FF8A30"); break;
@@ -3598,14 +4307,14 @@ public class BattleScreen : MonoBehaviour
         {
             if (pair.Key.Hp < pair.Value) hitEnemies.Add(pair.Key);
         }
-        string id = card.Data.Id;
+        string id = data.Id;
         // 3-136: 처형 연출을 끈 동안은 "처형됐는지" 계산도 주석으로 막음 (안 쓰는 변수 경고 CS0219 없애기)
         //   처형 연출을 다시 켜려면 아래 3줄과 special 조건의 "|| executed" 주석을 함께 풀면 됨
         // bool executed = false;
         // foreach (KeyValuePair<EnemyCombatant, int> pair in hpBefore)
         //     if (pair.Value > 0 && pair.Key.WasExecuted) executed = true;
-        PlayCardSpecialFx(p, card.Data, hitEnemies, target);   // 3-188: 필살기 카드 큰 이펙트
-        PlayClassFx(p, card.Data, hitEnemies);   // 3-184: 직업별 그림 이펙트 (번개·베기·사격·불새)
+        PlayCardSpecialFx(p, data, hitEnemies, target);   // 3-188: 필살기 카드 큰 이펙트
+        PlayClassFx(p, data, hitEnemies);   // 3-184: 직업별 그림 이펙트 (번개·베기·사격·불새)
 
         bool special = (id == "half_moon" && hitEnemies.Count > 0)   // 월식으로 바로 터진 반월참
                     // || executed                                    // 3-129: 처형 연출은 일단 끔 (처형 규칙은 그대로, 보통 공격 연출로 보임)
@@ -3635,6 +4344,7 @@ public class BattleScreen : MonoBehaviour
         // 죽음의 밤: 죽음의 밤 자세 + 붉은·보랏빛·검은 기운
         if (id == "death_night")
         {
+            SoundManager.Play("Night");   // 3-252
             UnitView nv = ViewOf(p);
             if (nv != null)
             {
@@ -3662,8 +4372,9 @@ public class BattleScreen : MonoBehaviour
             return;
         }
 
-        if (card.Data.IsThrow)
+        if (data.IsThrow)
         {
+            SoundManager.Play("Throw");   // 3-252
             // 던지는 카드 (3-74, 연막탄·사슬 함정): 제자리에서 투척 자세 + 앞쪽에 회색 연기 조각
             //   사슬 함정처럼 적에게 쓰는 카드는 맞은 적에게 고리 효과도 (아래 '적에게 거는 스킬' 보다 먼저 확인해야 함)
             UnitView thrower = ViewOf(p);
@@ -3678,7 +4389,7 @@ public class BattleScreen : MonoBehaviour
             return;
         }
 
-        if (card.Data.Type == CardType.Skill && card.Data.Target != TargetType.Self)
+        if (data.Type == CardType.Skill && data.Target != TargetType.Self)
         {
             UnitView cv = ViewOf(p);
             if (cv != null) cv.Motion.Curse();
@@ -3712,7 +4423,7 @@ public class BattleScreen : MonoBehaviour
             return;
         }
 
-        if (card.Data.Type == CardType.Attack)
+        if (data.Type == CardType.Attack)
         {
             UnitView pv = ViewOf(p);
             if (pv != null && p.Class == PlayerClass.FrostMage)
@@ -3721,12 +4432,12 @@ public class BattleScreen : MonoBehaviour
                 //   3-75: [절대영도] · [낙뢰] 는 전용 자세 (그림이 없으면 보통 얼음·전기 자세)
                 if (id == "absolute_zero") pv.Motion.CastAbsoluteZero();
                 else if (id == "lightning_fall") pv.Motion.CastLightningFall();
-                else if (card.Data.IsLightning) pv.Motion.CastLightning(); else pv.Motion.CastIce();
+                else if (data.IsLightning) pv.Motion.CastLightning(); else pv.Motion.CastIce();
             }
             else if (pv != null && p.Class == PlayerClass.Sniper)
             {
                 // 스나이퍼 (3-90): [총검술] = 앞으로 뛰어들며 총검 휘두르기 / 나머지 공격 = 제자리 조준 사격 + 총구 불꽃
-                if (card.Data.IsBayonet) pv.Motion.Lunge(false, 15);
+                if (data.IsBayonet) pv.Motion.Lunge(false, 15);
                 else if (id == "sn_red_flash")
                 {
                     // 3-197: 붉은 섬광 = 연막탄과 같은 투척 자세 + 앞쪽에 붉은 조각 (섬광탄을 던지는 느낌)
@@ -3755,6 +4466,7 @@ public class BattleScreen : MonoBehaviour
     IEnumerator SpecialRoutine(PlayerCombatant attacker, List<EnemyCombatant> targets, bool auraOnly, string bigText, int poseKind = 2)
     {
         busy = true;
+        SoundManager.Play("Ultimate");   // 3-252: 필살기
         UnitView av = ViewOf(attacker);
         Color violet = UIFactory.Hex("#9A3BFF");      // 보랏빛 (예전 붉은색 #E0102A 대신)
         Color darkGlow = UIFactory.Hex("#0C0612");    // 검은 빛
@@ -3916,7 +4628,7 @@ public class BattleScreen : MonoBehaviour
         }
         yield return new WaitForSeconds(0.05f);
         busy = false;
-        controlIndex = 0;
+        controlIndex = HomeIndex;
         SelectNextAvailablePlayer();   // 새 턴: P1부터
         Refresh();
         enemyStyles.Clear();   // 3-186: 적 턴 끝
@@ -3939,6 +4651,15 @@ public class BattleScreen : MonoBehaviour
     {
         PlayerCombatant p = Me;
         if (busy || !battle.CanAct(p)) return;
+        if (NetIntercept("END|" + battle.Players.IndexOf(p))) return;   // 3-236 온라인
+        DoEndTurn(p);
+    }
+
+    // 턴 종료 실행 (3-236: 온라인이면 동료의 턴 종료도 이 함수로)
+    void DoEndTurn(PlayerCombatant p)
+    {
+        if (!battle.CanAct(p)) return;
+        SoundManager.Play("EndTurn");   // 3-252
 
         // 적이 움직이기 전에 "누가 공격할 예정인지" 기억해 둠
         List<EnemyCombatant> attackers = new List<EnemyCombatant>();
@@ -3965,7 +4686,7 @@ public class BattleScreen : MonoBehaviour
         }
         else if (enemyActed)
         {
-            controlIndex = 0;
+            controlIndex = HomeIndex;
             SelectNextAvailablePlayer();
             Refresh();
             if (battle.Result == BattleResult.Ongoing) { Toast("내 턴  ·  " + battle.Round + "턴"); PlayTurnStartFx(); }   // 3-188 에너지 구슬
@@ -3976,7 +4697,8 @@ public class BattleScreen : MonoBehaviour
             // 다른 플레이어가 아직 턴 중 → 그 플레이어로 전환 (한 PC 테스트)
             SelectNextAvailablePlayer();
             Refresh();
-            if (Me != p) Toast(Me.Name + " 조작 중");
+            if (NetPlay) { if (IsLocal(p)) Toast("동료가 턴을 끝내기를 기다리는 중"); }   // 3-236 온라인
+            else if (Me != p) Toast(Me.Name + " 조작 중");
         }
     }
 

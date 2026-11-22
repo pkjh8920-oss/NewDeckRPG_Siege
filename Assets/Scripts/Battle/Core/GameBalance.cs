@@ -462,6 +462,16 @@ public static class GameBalance
     // 배열 칸 번호 = 스테이지 - 1  (0번 칸 = 1스테이지 ... 3번 칸 = 4스테이지)
     // 보스 전 예상 레벨: 1스테이지 Lv.3, 2스테이지 Lv.5~6, 3스테이지 Lv.8, 4스테이지 Lv.10 기준으로 잡은 추정치
     // 플레이어 HP도 CON으로 늘어나므로 공격력도 함께 올림. 방어도는 공격력과 같은 배율
+    // ---------------- 3-236 온라인 멀티 ----------------
+    public const int NetMaxPlayers = 4;            // 한 방 최대 인원 (방장 포함)
+    public const int NetCodeLength = 6;            // 방 코드 글자 수 (Unity Relay 참가 코드)
+    public const int NetMaxRooms = 10;             // 3-251: 동시에 열 수 있는 방 개수 (10방 × 4명 = 최대 40명, 무료 한도 월 평균 50명 안쪽)
+    public const float NetLobbyHeartbeat = 15f;    // 3-251: 방이 살아 있다고 알리는 간격(초). Lobby 는 30초 동안 소식이 없으면 저절로 지움
+
+    // 3-270: 혼자(싱글) 할 때 보스를 조금 크게 (몸 그림만, 체력바·의도 글자는 그대로). 2명 이상이면 그대로
+    public const float SoloBossScale = 1.1f;        // 보통 보스 (수문장·요새·설계자: 원래 키 400~450)
+    public const float SoloSmallBossScale = 1.22f;  // 작아 보이던 보스 (심연의 거대 껍질·차원 균열의 감시자: 키 약 280)
+
     public const int MaxStage = 4;
     public static readonly float[] StageHpScale = { 1.0f, 1.8f, 2.6f, 3.4f };   // 3-160: 3-133 값으로 되돌림 (힘 2점당 +1 과 짝). 3-159 의 1 / 2 / 3 / 4 는 힘 1점당 +1 일 때 쓴 것
     // 2026-11-09 플레이 피드백 (힘·민첩 20 으로도 1스테이지 끝에 HP 30/60): 1스테이지 공격력 1.0 → 0.75

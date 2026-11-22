@@ -56,6 +56,7 @@ public static class SettingsArt
         UIFactory.Stretch(hit.rectTransform);
         hit.raycastTarget = true;
         Button btn = hit.gameObject.AddComponent<Button>();
+        UIFactory.AddClick(btn);   // 3-266: 그림 버튼도 누르는 소리
         btn.transition = Selectable.Transition.None;
         if (onClick != null) btn.onClick.AddListener(onClick);
         HoverRelay hover = hit.gameObject.AddComponent<HoverRelay>();

@@ -332,6 +332,13 @@ public static class UIFactory
     }
 
     // 버튼 (색 상자 + 가운데 글자)
+    // 3-266: 직접 만든 그림 버튼에도 누르는 소리 (MakeButton 으로 만든 버튼은 원래 소리가 남)
+    //   같은 소리가 0.04초 안에 또 오면 SoundManager 가 무시해서, 원래 Click 을 내던 버튼도 두 번 나지 않음
+    public static void AddClick(Button b)
+    {
+        if (b != null) b.onClick.AddListener(() => SoundManager.Play("Click"));
+    }
+
     public static Button MakeButton(string name, Transform parent, string label, Color color, UnityAction onClick, int fontSize = 24)
     {
         Image img = MakeImage(name, parent, color);

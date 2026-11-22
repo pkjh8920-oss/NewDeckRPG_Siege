@@ -15,6 +15,10 @@ public class PartyVote
     // Votes[사람 번호] = 그 사람이 고른 것 (MapNode 또는 SiegeChoice). null = 아직 안 던짐
     public readonly object[] Votes;
 
+    // 3-269: "나간 사람" 표시. 투표한 걸로 치지만(투표가 끝나게) 결과를 셀 때는 빼고 셈
+    //   예전엔 나간 사람이 첫 표를 따라 해서, 3·4명일 때 첫 표가 한 표 더 가진 셈이었음
+    public static readonly object Absent = new object();
+
     public PartyVote(int players)
     {
         Votes = new object[players];
@@ -31,6 +35,16 @@ public class PartyVote
     }
 
     public bool AllVoted { get { return NextVoter < 0; } }
+
+    // 나간 사람 자리를 "투표 안 함(빠짐)" 으로 채움
+    public void Skip(int player)
+    {
+        if (player >= 0 && player < Votes.Length && Votes[player] == null) Votes[player] = Absent;
+    }
+
+    // 진짜 표가 몇 장인지 / 투표할 사람이 몇 명인지 (나간 사람 빼고)
+    public int RealVotes { get { int n = 0; foreach (object v in Votes) if (v != null && v != Absent) n++; return n; } }
+    public int Voters { get { int n = 0; foreach (object v in Votes) if (v != Absent) n++; return n; } }
 
     public void Cast(int player, object option)
     {
@@ -51,7 +65,7 @@ public class PartyVote
     public object Resolve(System.Random rng, out bool split)
     {
         List<object> cast = new List<object>();
-        foreach (object v in Votes) if (v != null) cast.Add(v);
+        foreach (object v in Votes) if (v != null && v != Absent) cast.Add(v);
         split = false;
         if (cast.Count == 0) return null;
         foreach (object v in cast) if (v != cast[0]) split = true;

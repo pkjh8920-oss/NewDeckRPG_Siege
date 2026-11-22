@@ -76,6 +76,7 @@ public class RewardPanel : MonoBehaviour
         run = runState;
         gameObject.SetActive(true);
         transform.SetAsLastSibling();
+        foreach (PlayerReward gr in run.Rewards) if (gr.Gold > 0) { SoundManager.Play("Gold"); break; }   // 3-252: 골드를 받았으면 짤랑
         switch (run.LastRewardKind)
         {
             case RewardKind.Treasure: title.text = "보물 상자"; break;
@@ -85,7 +86,68 @@ public class RewardPanel : MonoBehaviour
         }
         current = FirstNotDone(0);
         if (current < 0) current = 0;
+        if (NetGate.Active) { current = MyReward(); NetSkipAway(); }   // 3-244 온라인: 내 보상 탭부터, 나간 사람 보상은 건너뜀
         Redraw();
+    }
+
+    // ---------------- 3-244 온라인 ----------------
+    // 내 보상 번호 (보상 목록은 플레이어 순서와 다를 수 있어서 Player 로 찾음)
+    int MyReward()
+    {
+        for (int i = 0; i < run.Rewards.Count; i++)
+            if (run.Players.IndexOf(run.Rewards[i].Player) == NetGate.Me) return i;
+        return 0;
+    }
+
+    // 이 보상을 내 화면에서 고를 수 있는지 (온라인이면 내 것만)
+    bool Mine(PlayerReward r)
+    {
+        return NetGate.CanControl(run.Players.IndexOf(r.Player));
+    }
+
+    // 나간 사람의 보상은 고를 사람이 없으니 건너뛰기로 (모든 화면에서 같은 때에 불림 → 같은 결과)
+    public void NetSkipAway()
+    {
+        if (run == null) return;
+        foreach (PlayerReward r in run.Rewards)
+        {
+            if (!NetGate.IsAway(run.Players.IndexOf(r.Player))) continue;
+            if (r.BossChoices != null && !r.BossDone) run.SkipBossRelic(r);
+            if (!r.CardDone) run.SkipRewardCard(r);
+        }
+        if (gameObject.activeSelf) Redraw();
+    }
+
+    // 고르기: 한 PC 면 바로, 온라인이면 "RWD|보상번호|종류|번호" 명령 (종류: B 보스 아티팩트 / BS 보스 건너뛰기 / C 카드 / CS 카드 그만)
+    void DoPick(PlayerReward r, string what, int index)
+    {
+        if (!Mine(r)) return;
+        if (NetGate.Intercept("RWD|" + run.Rewards.IndexOf(r) + "|" + what + "|" + index)) return;
+        ApplyPick(run.Rewards.IndexOf(r), what, index);
+    }
+
+    public void ApplyPick(int rewardIndex, string what, int index)
+    {
+        if (run == null || rewardIndex < 0 || rewardIndex >= run.Rewards.Count) return;
+        PlayerReward r = run.Rewards[rewardIndex];
+        switch (what)
+        {
+            case "B": if (r.BossChoices != null && !r.BossDone && index >= 0 && index < r.BossChoices.Count) { run.TakeBossRelic(r, index); SoundManager.Play("RelicGet"); } break;
+            case "BS": if (r.BossChoices != null && !r.BossDone) run.SkipBossRelic(r); break;
+            case "C": if (!r.CardDone && index >= 0 && index < r.CardChoices.Count) { run.TakeRewardCard(r, index); SoundManager.Play("RewardPick"); } break;
+            case "CS": if (!r.CardDone) run.SkipRewardCard(r); break;
+        }
+        if (!gameObject.activeSelf) return;
+        if (NetGate.Active) Redraw();   // 온라인: 탭은 그대로 (남이 고른 것도 화면만 다시 그림)
+        else AfterPick(r);
+    }
+
+    // [계속]: 온라인이면 "RWDC" 명령 (누가 눌러도 모두 같이 넘어감)
+    public void ApplyClose()
+    {
+        if (run == null || !gameObject.activeSelf || !run.AllRewardsDone) return;
+        Hide();
+        if (OnClose != null) OnClose();
     }
 
     public void Hide()
@@ -164,9 +226,9 @@ public class RewardPanel : MonoBehaviour
                 for (int i = 0; i < n; i++)
                 {
                     int index = i;
-                    RelicBox(r.BossChoices[i], new Vector2((i - (n - 1) / 2f) * 470, y), "", () => { run.TakeBossRelic(r, index); AfterPick(r); });
+                    RelicBox(r.BossChoices[i], new Vector2((i - (n - 1) / 2f) * 470, y), "", () => DoPick(r, "B", index));
                 }
-                SmallButton("건너뛰기", new Vector2(0, y - RelicBoxHeight - 16), () => { run.SkipBossRelic(r); AfterPick(r); });
+                SmallButton("건너뛰기", new Vector2(0, y - RelicBoxHeight - 16), () => DoPick(r, "BS", 0));
                 y -= RelicBoxHeight + 80;
             }
         }
@@ -194,9 +256,9 @@ public class RewardPanel : MonoBehaviour
                 {
                     int index = i;
                     float x = (i - (n - 1) / 2f) * (CardView.Width + 60) * scale;
-                    CardView.CreateDisplay(cards, r.CardChoices[i], p.ManaName, new Vector2(x, 0), scale, () => { run.TakeRewardCard(r, index); AfterPick(r); });
+                    CardView.CreateDisplay(cards, r.CardChoices[i], p.ManaName, new Vector2(x, 0), scale, () => DoPick(r, "C", index));
                 }
-                SmallButton(r.TakenCards.Count > 0 ? "그만 고르기" : "건너뛰기", new Vector2(0, y - 50 - CardView.Height * scale - 60), () => { run.SkipRewardCard(r); AfterPick(r); });
+                SmallButton(r.TakenCards.Count > 0 ? "그만 고르기" : "건너뛰기", new Vector2(0, y - 50 - CardView.Height * scale - 60), () => DoPick(r, "CS", 0));
             }
         }
         else if (run.LastRewardKind != RewardKind.Treasure && r.Relic == null && r.BossChoices == null)
@@ -227,14 +289,14 @@ public class RewardPanel : MonoBehaviour
     {
         bool all = run.AllRewardsDone;
         continueButton.interactable = all;
-        continueLabel.text = all ? "계속" : "고르는 중...";
+        continueLabel.text = all ? "계속" : (NetGate.Active && current >= 0 && current < run.Rewards.Count && run.Rewards[current].Done ? "동료 기다리는 중..." : "고르는 중...");
     }
 
     void Close()
     {
         if (!run.AllRewardsDone) return;
-        Hide();
-        if (OnClose != null) OnClose();
+        if (NetGate.Intercept("RWDC")) return;   // 3-244 온라인
+        ApplyClose();
     }
 
     void BuildTabs()
@@ -259,6 +321,7 @@ public class RewardPanel : MonoBehaviour
             to.effectColor = on ? UIFactory.Hex("#FFD27A") : th.Light;
             to.effectDistance = on ? new Vector2(3, -3) : new Vector2(1.5f, -1.5f);
             Button tb = tab.gameObject.AddComponent<Button>();
+            UIFactory.AddClick(tb);   // 3-266: 그림 버튼도 누르는 소리
             tb.onClick.AddListener(() => { current = index; Redraw(); });
             Diamond(tab.transform, new Vector2(-145, 0), 22, on ? th.Light : th.Mid);   // 왼쪽 보석
             Diamond(tab.transform, new Vector2(145, 0), 14, on ? UIFactory.Hex("#FFD27A") : th.Light);   // 오른쪽 장식
@@ -349,6 +412,7 @@ public class RewardPanel : MonoBehaviour
         if (onClick != null)
         {
             Button b = box.gameObject.AddComponent<Button>();
+            UIFactory.AddClick(b);   // 3-266: 그림 버튼도 누르는 소리
             b.transition = Selectable.Transition.None;
             b.onClick.AddListener(() => onClick());
             Outline outline = box.GetComponent<Outline>();
@@ -406,6 +470,7 @@ public class RewardPanel : MonoBehaviour
         t.fontStyle = FontStyle.Bold;
         t.raycastTarget = false;
         Button b = plate.gameObject.AddComponent<Button>();
+        UIFactory.AddClick(b);   // 3-266: 그림 버튼도 누르는 소리
         ColorBlock cb = b.colors;
         cb.highlightedColor = new Color(1.25f, 1.2f, 1.1f, 1f);
         cb.pressedColor = new Color(0.8f, 0.8f, 0.8f, 1f);

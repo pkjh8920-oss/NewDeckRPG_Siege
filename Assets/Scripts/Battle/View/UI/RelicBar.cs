@@ -87,6 +87,7 @@ public class RelicBar : MonoBehaviour
             bar.raycastTarget = true;
             bar.gameObject.AddComponent<Outline>().effectColor = new Color(0.78f, 0.63f, 0.35f, 0.6f);
             Button open = bar.gameObject.AddComponent<Button>();
+            UIFactory.AddClick(open);   // 3-266: 그림 버튼도 누르는 소리
             open.onClick.AddListener(Toggle);
             string mini = "<b>" + p.Name + " " + ClassLibrary.ColoredClassName(p.Class) + "</b>  <color=#FF8A8A>HP " + p.Hp + "/" + p.MaxHp + "</color>  <color=#C8C0D8>▼ 펼치기</color>";
             Text tm = UIFactory.MakeText("Mini", transform, mini, 19, Color.white, TextAnchor.MiddleLeft);
@@ -207,6 +208,7 @@ public class RelicBar : MonoBehaviour
                     // 3-118: "+N" 칸을 누르면 아래에 전체 목록을 펼침 (다시 누르면 접음)
                     empty.raycastTarget = true;
                     Button mb = empty.gameObject.AddComponent<Button>();
+                    UIFactory.AddClick(mb);   // 3-266: 그림 버튼도 누르는 소리
                     mb.onClick.AddListener(ToggleAllRelics);
                 }
             }
@@ -277,6 +279,7 @@ public class RelicBar : MonoBehaviour
         UIFactory.Stretch(bar.rectTransform);
         bar.raycastTarget = true;
         Button open = bar.gameObject.AddComponent<Button>();
+        UIFactory.AddClick(open);   // 3-266: 그림 버튼도 누르는 소리
         ColorBlock cb = open.colors;
         cb.highlightedColor = new Color(1.15f, 1.15f, 1.15f, 1f);   // 마우스를 올리면 살짝 밝게
         open.colors = cb;

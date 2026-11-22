@@ -20,7 +20,7 @@ public class DevPanel : MonoBehaviour
 {
     public static bool Enabled
     {
-        get { return Application.isEditor || Debug.isDebugBuild || Unlocked; }
+        get { return !ForcedOff && (Application.isEditor || Debug.isDebugBuild || Unlocked); }
     }
 
     // ==================== 3-205 숨은 개발자 모드 ====================
@@ -31,7 +31,17 @@ public class DevPanel : MonoBehaviour
     //   자바로 치면 String.hashCode() 의 더 긴(64비트) 버전 (FNV-1a 라는 간단한 방법)
     //   비밀번호를 바꾸려면: 새 비밀번호의 해시값을 계산해서 PasswordHash 만 바꾸면 됨
     public static bool Unlocked { get; private set; }
-    public static event System.Action OnUnlocked;   // 켜지는 순간 BattleScreen 이 위쪽 개발 버튼을 보이게 함
+    public static event System.Action OnUnlocked;
+    public static event System.Action OnLocked;     // 3-231: 끄는 순간 BattleScreen 이 개발 버튼을 숨김
+    public static bool ForcedOff { get; private set; }   // 3-231: 끄기를 누르면 에디터에서도 꺼짐 (다시 비밀번호로 켤 수 있음)
+
+    // 3-231: 개발자 모드 끄기
+    public static void Lock()
+    {
+        Unlocked = false;
+        ForcedOff = true;
+        if (OnLocked != null) OnLocked();
+    }   // 켜지는 순간 BattleScreen 이 위쪽 개발 버튼을 보이게 함
     const string PasswordSalt = "DeckRPG#";         // 앞에 붙이는 글자 (같은 숫자 비밀번호라도 다른 해시가 나오게)
     const ulong PasswordHash = 0x3bb661e5ace58880UL;
 
@@ -50,9 +60,10 @@ public class DevPanel : MonoBehaviour
     public static bool TryUnlock(string password)
     {
         if (password == null || Fnv1a(PasswordSalt + password.Trim()) != PasswordHash) return false;
-        if (!Unlocked)
+        if (!Unlocked || ForcedOff)
         {
             Unlocked = true;
+            ForcedOff = false;
             if (OnUnlocked != null) OnUnlocked();
         }
         return true;
@@ -158,8 +169,8 @@ public class DevPanel : MonoBehaviour
             int col = i % 2, row = i / 2;
             Vector2 pos = new Vector2(-185 + col * 370, -60 - row * 42);
             string label = "[" + CardData.RarityName(c.Rarity) + "] " + c.Name;
-            ListButton(label, pos, 300, CardView.RarityColor(c.Rarity), () => { p.Deck.Add(c.UpgradeTo != null ? MakeFresh(c) : c); Done(p.Name + " 덱에 [" + c.Name + "]"); });
-            ListButton("+", pos + new Vector2(180, 0), 50, CardView.UpgradedNameColor, () => { CardData up = c.MakeUpgraded(); if (up != null) { p.Deck.Add(up); Done(p.Name + " 덱에 [" + up.Name + "]"); } });
+            ListButton(label, pos, 300, CardView.RarityColor(c.Rarity), () => { if (NetGate.Intercept("DEVL|CARD:" + c.Id + ":0|" + target)) return; p.Deck.Add(c.UpgradeTo != null ? MakeFresh(c) : c); Done(p.Name + " 덱에 [" + c.Name + "]"); });
+            ListButton("+", pos + new Vector2(180, 0), 50, CardView.UpgradedNameColor, () => { if (NetGate.Intercept("DEVL|CARD:" + c.Id + ":1|" + target)) return; CardData up = c.MakeUpgraded(); if (up != null) { p.Deck.Add(up); Done(p.Name + " 덱에 [" + up.Name + "]"); } });
         }
     }
 
@@ -187,7 +198,7 @@ public class DevPanel : MonoBehaviour
             int col = i % 2, row = i / 2;
             RelicData relic = r;
             ListButton("[" + r.RarityName() + "] " + r.Name, new Vector2(-185 + col * 370, -60 - row * 42), 350, RelicView.RarityColor(r.Rarity),
-                () => { RunState rs = GetRun(); if (rs != null) rs.GiveRelic(p, relic); Done(p.Name + " 아티팩트 [" + relic.Name + "]"); ShowRelicList(); });
+                () => { if (NetGate.Intercept("DEVL|RELIC:" + relic.Id + "|" + target)) return; RunState rs = GetRun(); if (rs != null) rs.GiveRelic(p, relic); Done(p.Name + " 아티팩트 [" + relic.Name + "]"); ShowRelicList(); });
             i++;
         }
     }
@@ -262,9 +273,62 @@ public class DevPanel : MonoBehaviour
         UIFactory.Place(t.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, y), new Vector2(400, 26));
     }
 
+    // ---------------- 3-246 온라인: 개발 도구도 모두에게 같이 ----------------
+    //   버튼을 누르면 "DEVB|버튼 이름|대상 번호" 명령 → 모든 화면에서 같은 버튼을 같은 대상에게 누른 것처럼 실행
+    //   대상 고르기(◀▶)·목록 열기·도감은 내 화면 일이라 그대로
+    static readonly HashSet<string> LocalOnly = new HashSet<string> { "◀", "▶", "카드 넣기", "아티팩트 넣기", "도감 전부 보기", "도감 초기화" };
+    private readonly Dictionary<string, System.Action> netActions = new Dictionary<string, System.Action>();
+
+    public void RunNet(string label, int forTarget)
+    {
+        System.Action act;
+        if (!netActions.TryGetValue(label, out act)) return;
+        target = forTarget;
+        act();
+        if (gameObject.activeSelf) UpdateTarget();
+    }
+
+    // "DEVL|CARD:카드Id:강화(0/1)|대상" / "DEVL|RELIC:아티팩트Id|대상"
+    public void RunNetList(string key, int forTarget)
+    {
+        target = forTarget;
+        PlayerCombatant p = Target();
+        if (p == null) return;
+        string[] k = key.Split(':');
+        if (k[0] == "CARD" && k.Length >= 3)
+        {
+            foreach (CardData c in CardLibrary.RewardPool(p.Class))
+            {
+                if (c.Id != k[1]) continue;
+                CardData add = k[2] == "1" ? c.MakeUpgraded() : (c.UpgradeTo != null ? MakeFresh(c) : c);
+                if (add != null) { p.Deck.Add(add); Done(p.Name + " 덱에 [" + add.Name + "]"); }
+                return;
+            }
+        }
+        else if (k[0] == "RELIC" && k.Length >= 2)
+        {
+            foreach (RelicData r in RelicLibrary.All)
+            {
+                if (r.Id != k[1]) continue;
+                RunState rs = GetRun();
+                if (rs != null && !p.HasRelic(r.Id)) rs.GiveRelic(p, r);
+                Done(p.Name + " 아티팩트 [" + r.Name + "]");
+                if (listLayer.gameObject.activeSelf) ShowRelicList();
+                return;
+            }
+        }
+    }
+
     void Btn(string label, Vector2 pos, float width, System.Action onClick)
     {
-        Button b = UIFactory.MakeButton(label, transform, label, UIFactory.Hex("#24402C"), () => onClick(), 18);
+        bool local = LocalOnly.Contains(label) || label.Contains("|");
+        if (!local) netActions[label] = onClick;
+        System.Action click = () =>
+        {
+            if (!local && NetGate.Intercept("DEVB|" + label + "|" + target)) return;   // 3-246 온라인: 모두에게 같이
+            onClick();
+        };
+        Button b = UIFactory.MakeButton(label, transform, label, UIFactory.Hex("#24402C"), () => click(), 18);
         UIFactory.Place((RectTransform)b.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), pos, new Vector2(width, 40));
     }
 }

@@ -111,6 +111,7 @@ public class ForgePanel : MonoBehaviour
         Button anvilButton = anvilImg.gameObject.AddComponent<Button>();
         anvilButton.transition = Selectable.Transition.None;   // 색은 직접 바꿈 (빛)
         anvilButton.onClick.AddListener(OnAnvilClicked);
+        anvilButton.onClick.AddListener(() => SoundManager.Play("Click"));   // 3-259: 다른 버튼과 같은 누르는 소리
         HoverRelay hover = anvilImg.gameObject.AddComponent<HoverRelay>();
         hover.OnChange = (on) => anvilHover = on;
 
@@ -145,7 +146,7 @@ public class ForgePanel : MonoBehaviour
         skip.onClick.AddListener(() => typed = fullLine.Length);
 
         // 떠나기
-        leaveButton = UIFactory.MakeButton("Leave", transform, "떠나기", UIFactory.Hex("#4A3020"), () => Leave(), 28);
+        leaveButton = UIFactory.MakeButton("Leave", transform, "떠나기", UIFactory.Hex("#4A3020"), () => { if (NetGate.Intercept("FLEAVE|" + NetGate.Me)) return; Leave(); }, 28);
         UIFactory.Place((RectTransform)leaveButton.transform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-40, 250), new Vector2(220, 70));
 
         // 모루 선택 상자 (평소엔 숨김). 왼쪽 벽 앞에 떠서 드워프·모루를 가리지 않음
@@ -257,7 +258,7 @@ public class ForgePanel : MonoBehaviour
         {
             Button b = hit.gameObject.AddComponent<Button>();
             b.transition = Selectable.Transition.None;
-            b.onClick.AddListener(() => { if (onClick != null) onClick(); });
+            b.onClick.AddListener(() => { SoundManager.Play("Click"); if (onClick != null) onClick(); });   // 3-259
             HoverRelay hover = hit.gameObject.AddComponent<HoverRelay>();
             hover.OnChange = (on) => { glow.color = new Color(1f, 0.7f, 0.35f, on ? 0.35f : 0f); };
         }
@@ -288,6 +289,8 @@ public class ForgePanel : MonoBehaviour
         transform.SetAsLastSibling();
         current = FirstNotDone(0);
         if (current < 0) current = 0;
+        if (NetGate.Active) current = NetGate.Me;   // 3-244 온라인: 나는 내 것만
+        netReady.Clear();
         menu.gameObject.SetActive(false);
         cardLayer.gameObject.SetActive(false);
         HideEquip();
@@ -302,6 +305,56 @@ public class ForgePanel : MonoBehaviour
     }
 
     PlayerCombatant Current { get { return run.Players[current]; } }
+
+    // ---------------- 3-244 온라인 ----------------
+    //   강화 = 자기 것만, 명령 "FORGE|자리|W|갈래" / "FORGE|자리|C|덱 번호"
+    //   모두 강화를 마치면 바로 다 같이 나감 / [떠나기] = "FLEAVE|자리", 모두 누르면 나감
+    private readonly HashSet<int> netReady = new HashSet<int>();
+
+    public void ApplyForge(int slot, string kind, int value)
+    {
+        if (run == null || !gameObject.activeSelf || slot < 0 || slot >= run.Players.Count) return;
+        PlayerCombatant p = run.Players[slot];
+        if (!run.CanForge(p)) return;
+        string message = null;
+        if (kind == "W" && OnUpgrade != null) message = OnUpgrade(p, (WeaponBranch)value);
+        else if (kind == "C" && OnCardUpgrade != null) message = OnCardUpgrade(p, value);
+        if (message == null) return;
+        Hammer(slot == NetGate.Me ? 26 : 8);
+        if (slot == NetGate.Me)
+        {
+            menu.gameObject.SetActive(false);
+            cardLayer.gameObject.SetActive(false);
+            HideEquip();
+            Say("됐네! " + message);
+        }
+        BuildTabs();
+        NetCheckAllDone();
+    }
+
+    // 강화할 수 있는 사람이 (나간 사람 빼고) 아무도 없으면 다 같이 나감
+    public void NetCheckAllDone()
+    {
+        if (run == null || !gameObject.activeSelf) return;
+        for (int i = 0; i < run.Players.Count; i++)
+            if (!NetGate.IsAway(i) && run.CanForge(run.Players[i])) return;
+        Leave();
+    }
+
+    public void ApplyLeaveReady(int slot)
+    {
+        if (run == null || !gameObject.activeSelf) return;
+        netReady.Add(slot);
+        int ready = 0, need = 0;
+        for (int i = 0; i < run.Players.Count; i++)
+        {
+            if (NetGate.IsAway(i)) continue;
+            need++;
+            if (netReady.Contains(i) || !run.CanForge(run.Players[i])) ready++;
+        }
+        if (ready >= need) { Leave(); return; }
+        Say(netReady.Contains(NetGate.Me) ? "알았네, 동료들이 끝나면 같이 나가세. (" + ready + " / " + need + ")" : "누군가 떠날 채비를 하는군. (" + ready + " / " + need + ")");
+    }
 
     // start 번부터 아직 강화 안 한 첫 사람 (없으면 -1)
     int FirstNotDone(int start)
@@ -352,7 +405,7 @@ public class ForgePanel : MonoBehaviour
             ColorBlock cb = b.colors;
             cb.highlightedColor = new Color(1.2f, 1.2f, 1.2f, 1f);
             b.colors = cb;
-            b.onClick.AddListener(() => SelectPlayer(index));
+            b.onClick.AddListener(() => { SoundManager.Play("Click"); SelectPlayer(index); });   // 3-259
             string label = "P" + (i + 1) + " " + ClassLibrary.ColoredClassName(p.Class) + (done ? "  <color=#9CFF9C><size=17>완료</size></color>" : "");
             Text t = UIFactory.MakeText("Label", img.transform, label, 24, on ? UIFactory.Hex("#FFF2D0") : UIFactory.Hex("#E8DCC8"), TextAnchor.MiddleCenter);
             UIFactory.Stretch(t.rectTransform, 24, 24, 0, 0);
@@ -378,6 +431,7 @@ public class ForgePanel : MonoBehaviour
     void OnAnvilClicked()
     {
         if (leaving) return;
+        if (!NetGate.CanControl(current)) { Say("그건 " + Current.Name + " 몫일세. 자네 건 자네 탭에서 하게!"); return; }   // 3-244
         PlayerCombatant p = Current;
         if (!run.CanForge(p))
         {
@@ -539,6 +593,7 @@ public class ForgePanel : MonoBehaviour
     void DoCardUpgrade(int deckIndex)
     {
         if (OnCardUpgrade == null) return;
+        if (NetGate.Intercept("FORGE|" + current + "|C|" + deckIndex)) { cardLayer.gameObject.SetActive(false); return; }   // 3-244 온라인
         string message = OnCardUpgrade(Current, deckIndex);
         cardLayer.gameObject.SetActive(false);
         FinishForge(message);
@@ -570,6 +625,7 @@ public class ForgePanel : MonoBehaviour
     void DoUpgrade(WeaponBranch branch)
     {
         if (OnUpgrade == null) return;
+        if (NetGate.Intercept("FORGE|" + current + "|W|" + (int)branch)) { menu.gameObject.SetActive(false); HideEquip(); return; }   // 3-244 온라인
         string message = OnUpgrade(Current, branch);
         FinishForge(message);
     }
@@ -648,6 +704,7 @@ public class ForgePanel : MonoBehaviour
     // 망치질: 모루 위에서 불똥이 튐
     void Hammer(int sparks)
     {
+        if (sparks >= 8) SoundManager.Play("Forge");   // 3-252: 강화 망치 소리 (메뉴 열 때 작은 불똥은 소리 없음)
         Vector3 p = ((RectTransform)transform).InverseTransformPoint(anvil.position);
         Vector2 top = new Vector2(p.x, p.y + 200f);
         Vfx.Sparks(transform, top, UIFactory.Hex("#FFB040"), sparks);

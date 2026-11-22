@@ -5,7 +5,9 @@
   Title   타이틀·캐릭터 선택
   Map     지도·선택지·보물 상자·제단
   Battle  일반 전투 (정예·엘리트 포함)
-  Boss    보스 전투
+  Boss    보스 전투 (스테이지 곡이 없을 때)
+  Boss1~Boss4  스테이지별 보스 전투 (3-250)
+  Elite   엘리트 전투 (3-250, 없으면 Battle)
   Shop    상점
   Rest    야영지·대장간
   Ending  엔딩
@@ -27,7 +29,8 @@
   PowerUp     몬스터가 힘을 얻을 때
   Burn        발화가 걸릴 때 (없으면 Fire)
   Freeze      동결·동상 (없으면 Ice)
-  Slash       카인 공격 · 실비아 총검술
+  Slash       카인 공격 (낫)
+  Slash1      실비아 총검술 (없으면 Slash) (3-238)
   Fire        이그니스 공격
   Ice         제피르 얼음 공격
   Lightning   제피르 벼락 공격
@@ -39,3 +42,55 @@
   LevelUp     레벨 업 (없으면 PowerUp) (3-208)
   Victory     전투 승리 (짧은 음악)
   Defeat      패배 (짧은 음악)
+
+[3-238 들어간 소리]
+- 효과음 28개 + 배경음 7곡 (.ogg). 크기(음량)를 맞춰서 넣음 (효과음끼리 비슷하게, 배경음은 효과음보다 조금 작게)
+- 효과음 출처: 모두 CC0 (출처 표시 의무 없음, 무료·상업 사용 가능)으로 공개된 소재를 자르고 섞은 것
+  Kenney (Interface / Casino Audio / Impact Sounds / Music Jingles), OpenGameArt (WobbleBoxx, Ogrebane, Someoneman,
+  qubodup, themightyglider, bart, trazzz123, artisticdude, Fupi, Robin Lamb, remaxim), lentikula (Basic Spell Impacts), SFXMint
+- Slash1 (실비아 총검술) = 예전 Slash: remaxim · 3 Melee sounds (OpenGameArt, CC0)
+- Slash (카인 낫, 새로 만듦) = 6개 소재를 겹쳐 만듦 (미리듣기 페이지 기준 모두 CC0)
+  DJT4NN3R · whoosh_long_low.wav          https://freesound.org/people/DJT4NN3R/sounds/449990/
+  Sadiquecat · Woosh - Metal Skimmer 1    https://freesound.org/people/Sadiquecat/sounds/742955/
+  Ben Jaszczak & Brian Nelson · Axe Swing https://opengameart.org/content/medieval-sound-effects-weapon-textures
+  CogFireStudios · Hit Impact Sword 3     https://freesound.org/people/CogFireStudios/sounds/547042/
+  NeoSpica · Slicing through flesh        https://freesound.org/people/NeoSpica/sounds/504615/
+  qubodup · ImpactMeat02                  https://opengameart.org/content/impact
+- 배경음 7곡: 팀이 Google Gemini 음악 만들기로 생성 (AI 생성 음악 → itch.io AI 공개에서 Sounds 체크)
+  공통 테마: "요새를 지키는 긴 밤", 요새 테마 네 음 D-F-E-D
+  3-239: 반복할 때 끝의 무음(약 2.5초)을 잘라 냄 (엔딩은 그대로)
+- 3-250 배경음 추가: Elite, Boss1, Boss2, Boss3, Boss4 (끝 무음 잘라 냄, 음량은 다른 배경음과 같게 -19 LUFS 정도)
+
+[3-252 효과음 20개 추가] (모두 CC0 소재 + 팀 자체 합성, 자세한 레이어 목록은 Sound_Collection_RERERE.zip 의 SOURCES.md)
+  EndTurn     턴 종료 버튼              Kenney Impact/Casino, Brian MacIntosh (Playing Card Sounds)
+  NoEnergy    에너지 부족으로 못 냄      EZduzziteh (Error), Kenney Interface
+  Shuffle     버린 카드 섞기            Brian MacIntosh, Kenney Casino
+  Exhaust     카드 소멸(불에 탐)         Luckius (Paper), themightyglider (Catching fire), rubberduck (75 CC0 hit)
+  Potion      포션 사용                 qubodup (Liquid Bottle Drink Set), Kenney Interface
+  WaveIn      다음 웨이브               자체 합성 피리 + StumpyStrust (Their Coming), Kenney Interface
+  Gold        골드 받기·사고팔기         Amarikah (Sack of Gold), Kenney Casino
+  RewardPick  보상 카드 고름            Kenney Interface, WobbleBoxx Workshop
+  RelicGet    아티팩트 얻음·보물 나눔    railkill (Mystery Sting), Kenney Interface
+  Forge       대장간 강화               VishwaJai (Blacksmith's Hammer), Kenney Impact, rubberduck
+  Rest        초소 휴식                 PagDev (Fireplace loop), Kenney RPG
+  Altar       제단 열기                 qubodup (Ghost breath), Kenney Impact, rubberduck
+  Vote        투표                     Kenney Interface
+  PageFlip    도감·덱 보기·상태 설명     StarNinjas (10 Book Page Flips), Kenney RPG
+  Ultimate    필살기                   rubberduck (25 CC0 bang), Kenney Sci-Fi, 자체 합성
+  Night       죽음의 밤                 qubodup (Ghost breath), Kenney Sci-Fi, 자체 합성
+  Throw       던지는 카드               artisticdude (Swishes), qubodup, Kenney Impact
+  Transition  화면 전환                 qubodup (Wind, hit, time morph), 자체 합성
+  PlayerJoin  친구 들어옴·다시 들어옴    WobbleBoxx Workshop, Kenney Interface
+  PlayerLeave 친구 나감·연결 끊김        WobbleBoxx Workshop, Kenney Interface
+- 음량: UI(Vote, PageFlip) -24 / NoEnergy, Transition -22 / 보통 -20 / 큰 사건 -18 / Night, Ultimate -17 (순간 최대 LUFS)
+- Charge는 소리가 별로라서 뺌
+
+[3-253 효과음 추가]
+  ChestOpen   보물 상자 열기 (-21, 원본보다 작게, 3-255: 2배속 1.15초)   qubodup (Ghost breath, Wind hit time morph), railkill (Mystery Sting),
+              Kenney RPG/Sci-Fi/Impact/Interface (creak1, doorOpen_2, lowFrequency_explosion_000, impactBell_heavy_002, glass), 자체 합성 서브
+
+[3-256]
+  StatPick    스탯 찍기 = RewardPick 을 1.5배 빠르게 (0.7초, -19)  출처는 RewardPick 과 같음
+- Title(시작 배경음) 3dB 줄임 (-19 → -22 LUFS)
+  AltarBlood  피의 제단 열기 = Altar 를 0.75배 느리게 (3.8초, -18)  출처는 Altar 와 같음 (3-258)
+  Lightning   3-260: 3dB 키움 (-18 → -15)

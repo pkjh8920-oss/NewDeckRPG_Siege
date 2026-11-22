@@ -34,7 +34,7 @@ public class StatusGuidePanel : MonoBehaviour
         return p;
     }
 
-    public void Open() { gameObject.SetActive(true); transform.SetAsLastSibling(); }
+    public void Open() { SoundManager.Play("PageFlip"); gameObject.SetActive(true); transform.SetAsLastSibling(); }
     public void Hide() { gameObject.SetActive(false); }
 
     static int Pct(float v) { return (int)System.Math.Round(v * 100); }

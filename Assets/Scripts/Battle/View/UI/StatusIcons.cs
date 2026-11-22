@@ -206,6 +206,7 @@ public static class StatusIcons
                 mt.fontStyle = FontStyle.Bold;
                 mt.raycastTarget = false;
                 Button mb = icon.gameObject.AddComponent<Button>();
+                UIFactory.AddClick(mb);   // 3-266: 그림 버튼도 누르는 소리
                 RowState st = state;
                 RectTransform rowRef = row;
                 mb.onClick.AddListener(() =>

@@ -183,6 +183,9 @@ public class CharacterSelectPanel : MonoBehaviour
     private int multiCount;
     private string multiCode = "";
     private List<PlayerClass> picks = new List<PlayerClass>();   // 지금까지 고른 직업 (번호 = P 번호 - 1)
+    // 3-236 온라인: 각자 자기 컴퓨터에서 고름. netPicks[자리] = 고른 직업 번호 (-1 = 아직)
+    private bool online;
+    private int[] netPicks = new int[0];
     private List<Image> slotBadges = new List<Image>();          // 캐릭터 칸 위 "P1" 표시
     private List<Text> slotBadgeTexts = new List<Text>();
     private List<Image> slotDims = new List<Image>();            // 이미 고른 칸을 어둡게
@@ -368,6 +371,7 @@ public class CharacterSelectPanel : MonoBehaviour
                 else UIFactory.Place(face.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, 12), new Vector2(230, 300));
                 face.raycastTarget = false;
                 Button b = fr.gameObject.AddComponent<Button>();
+                UIFactory.AddClick(b);   // 3-266: 그림 버튼도 누르는 소리
                 b.transition = Selectable.Transition.None;
                 b.onClick.AddListener(() => Select(cls));
                 slotFrames.Add(fr);
@@ -462,6 +466,7 @@ public class CharacterSelectPanel : MonoBehaviour
     public void Show(PlayerClass start)
     {
         multi = false;
+        online = false;
         picks.Clear();
         gameObject.SetActive(true);
         transform.SetAsLastSibling();
@@ -472,6 +477,7 @@ public class CharacterSelectPanel : MonoBehaviour
     public void ShowMulti(int players, string roomCode)
     {
         multi = true;
+        online = false;
         multiCount = Mathf.Clamp(players, 1, Classes.Length);
         multiCode = roomCode;
         picks.Clear();
@@ -480,7 +486,45 @@ public class CharacterSelectPanel : MonoBehaviour
         Select(Classes[0]);
     }
 
-    bool IsTaken(PlayerClass cls) { return picks.Contains(cls); }
+    // 3-236 온라인 캐릭터 선택: 모두의 화면에 같이 열림. 각자 자기 P 의 캐릭터만 고름
+    public void ShowOnline(int players, string roomCode)
+    {
+        multi = true;
+        online = true;
+        multiCount = Mathf.Clamp(players, 1, Classes.Length);
+        multiCode = roomCode;
+        picks.Clear();
+        netPicks = new int[multiCount];
+        for (int i = 0; i < netPicks.Length; i++) netPicks[i] = -1;
+        gameObject.SetActive(true);
+        transform.SetAsLastSibling();
+        Select(FirstFree(Classes[Mathf.Clamp(NetSession.LocalSlot, 0, Classes.Length - 1)]));   // P2 는 두 번째 캐릭터부터 보여 줌
+    }
+
+    // 3-236: "PICK|자리|직업" 명령이 왔을 때 (모든 화면이 같은 순서로 받음)
+    //   같은 직업을 두 명이 거의 동시에 누르면 → 방장에게 먼저 도착한 사람만 고른 걸로 (모든 화면이 같은 결과)
+    public void ApplyNetPick(int slot, int cls)
+    {
+        if (!online || slot < 0 || slot >= netPicks.Length) return;
+        if (cls >= 0)
+        {
+            for (int j = 0; j < netPicks.Length; j++) if (j != slot && netPicks[j] == cls) return;   // 이미 다른 사람이 고름
+        }
+        netPicks[slot] = cls;
+        if (gameObject.activeSelf) Select(selected);   // 화면 다시 맞추기 (P 배지·버튼 글자)
+    }
+
+    bool AllNetPicked()
+    {
+        foreach (int c in netPicks) if (c < 0) return false;
+        return netPicks.Length > 0;
+    }
+
+    bool IsTaken(PlayerClass cls)
+    {
+        if (online) return System.Array.IndexOf(netPicks, (int)cls) >= 0;
+        return picks.Contains(cls);
+    }
 
     // 아직 아무도 안 고른 첫 직업 (지금 보고 있는 것부터)
     PlayerClass FirstFree(PlayerClass from)
@@ -497,6 +541,23 @@ public class CharacterSelectPanel : MonoBehaviour
     void OnPlayPressed()
     {
         if (!multi) { if (OnPlay != null) OnPlay(selected); return; }
+        if (online)
+        {
+            int me = NetSession.LocalSlot;
+            if (me < 0 || me >= netPicks.Length) return;
+            if (AllNetPicked() && NetSession.IsHost && netPicks[me] == (int)selected)
+            {
+                // 모두 골랐음 → 방장이 [게임 시작] (P1, P2 ... 순서의 직업)
+                List<PlayerClass> list = new List<PlayerClass>();
+                foreach (int c in netPicks) list.Add((PlayerClass)c);
+                if (OnPlayMulti != null) OnPlayMulti(list);
+                return;
+            }
+            if (netPicks[me] == (int)selected) { NetSession.Send("PICK|" + me + "|-1"); return; }   // 내가 고른 걸 다시 누름 = 취소
+            if (IsTaken(selected)) return;                                                          // 다른 사람이 고름
+            NetSession.Send("PICK|" + me + "|" + (int)selected);                                    // 고르기 (바꾸기도 됨)
+            return;
+        }
         if (picks.Count >= multiCount)
         {
             if (OnPlayMulti != null) OnPlayMulti(new List<PlayerClass>(picks));
@@ -510,6 +571,7 @@ public class CharacterSelectPanel : MonoBehaviour
     void OnBackPressed()
     {
         if (!multi) { if (OnBack != null) OnBack(); return; }
+        if (online) { if (OnBackMulti != null) OnBackMulti(); return; }   // 3-236 온라인: [뒤로] = 방 나가기
         if (picks.Count > 0)
         {
             // 마지막으로 고른 사람 취소 → 그 사람 차례로 돌아감
@@ -524,6 +586,7 @@ public class CharacterSelectPanel : MonoBehaviour
     // 멀티 표시: 칸 위 P 배지, 고른 칸 어둡게, 차례 안내, 버튼 글자
     void RefreshMulti()
     {
+        if (online && multi) { RefreshOnline(); return; }
         for (int i = 0; i < Classes.Length && i < slotBadges.Count; i++)
         {
             int who = picks.IndexOf(Classes[i]);
@@ -568,6 +631,49 @@ public class CharacterSelectPanel : MonoBehaviour
         {
             turnText.text = "모두 골랐습니다!\n<size=20>[뒤로] = 마지막 선택 취소</size>";
             playLabel.text = "게임 시작";
+            playButton.interactable = true;
+        }
+    }
+
+    // 3-236 온라인 표시: 누가 뭘 골랐는지, 내 버튼 글자
+    void RefreshOnline()
+    {
+        for (int i = 0; i < Classes.Length && i < slotBadges.Count; i++)
+        {
+            int who = System.Array.IndexOf(netPicks, (int)Classes[i]);
+            bool taken = who >= 0;
+            slotBadges[i].gameObject.SetActive(taken);
+            slotDims[i].gameObject.SetActive(taken && who != NetSession.LocalSlot);   // 내가 고른 건 어둡게 안 함
+            if (taken)
+            {
+                slotBadges[i].color = TitlePanel.PlayerColor(who);
+                slotBadgeTexts[i].text = "P" + (who + 1);
+            }
+        }
+        int me = NetSession.LocalSlot;
+        int done = 0;
+        foreach (int c in netPicks) if (c >= 0) done++;
+        captionText.text = "방 " + multiCode + "  ·  " + multiCount + "명  ·  온라인";
+        string hex = ColorUtility.ToHtmlStringRGB(TitlePanel.PlayerColor(Mathf.Max(0, me)));
+        string mine = "<color=#" + hex + ">나는 P" + (me + 1) + "</color>";
+        int owner = System.Array.IndexOf(netPicks, (int)selected);
+        bool all = AllNetPicked();
+        if (all) turnText.text = mine + " — 모두 골랐습니다!\n<size=20>" + (NetSession.IsHost ? "내 캐릭터를 보고 [게임 시작]" : "방장이 시작하기를 기다리는 중") + "</size>";
+        else turnText.text = mine + " — 캐릭터를 고르세요\n<size=20>(" + done + " / " + multiCount + "명 고름)</size>";
+
+        if (owner >= 0 && owner != me)
+        {
+            playLabel.text = "P" + (owner + 1) + "이(가) 고름";
+            playButton.interactable = false;
+        }
+        else if (owner == me)
+        {
+            if (all && NetSession.IsHost) { playLabel.text = "게임 시작"; playButton.interactable = true; }
+            else { playLabel.text = "선택 취소"; playButton.interactable = true; }
+        }
+        else
+        {
+            playLabel.text = (me >= 0 && me < netPicks.Length && netPicks[me] >= 0) ? "이걸로 바꾸기" : "P" + (me + 1) + " 선택";
             playButton.interactable = true;
         }
     }

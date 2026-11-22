@@ -71,6 +71,7 @@ public class ShopPanel : MonoBehaviour
     {
         run = r;
         current = Mathf.Clamp(first, 0, run.Players.Count - 1);
+        netReady.Clear();
         gameObject.SetActive(true);
         transform.SetAsLastSibling();
         message.text = "";
@@ -78,6 +79,71 @@ public class ShopPanel : MonoBehaviour
     }
 
     public void Hide() { gameObject.SetActive(false); }
+
+    // ---------------- 3-244 온라인 ----------------
+    //   사기·팔기 = 자기 것만, 명령으로 ("BUY|자리|물건번호", "SELL|자리|아티팩트번호")
+    //   [떠나기] = "SHOPL|자리". 모두 누르면 다 같이 떠남 (먼저 누른 사람은 기다림)
+    private readonly HashSet<int> netReady = new HashSet<int>();
+
+    void LeaveClicked()
+    {
+        if (OnHover != null) OnHover(null, null);
+        if (NetGate.Intercept("SHOPL|" + NetGate.Me)) return;
+        if (OnLeave != null) OnLeave();
+    }
+
+    public void ApplyLeave(int slot)
+    {
+        if (run == null || !gameObject.activeSelf) return;
+        netReady.Add(slot);
+        NetCheckLeave();
+    }
+
+    // 나간 사람은 떠날 준비가 된 걸로 침
+    public void NetCheckLeave()
+    {
+        if (run == null || !gameObject.activeSelf) return;
+        int ready = 0, need = 0;
+        for (int i = 0; i < run.Players.Count; i++)
+        {
+            if (NetGate.IsAway(i)) continue;
+            need++;
+            if (netReady.Contains(i)) ready++;
+        }
+        if (ready >= need) { if (OnLeave != null) OnLeave(); return; }
+        message.text = netReady.Contains(NetGate.Me) ? "떠날 준비 완료 · 동료를 기다리는 중 (" + ready + " / " + need + ")"
+                                                     : "동료가 떠날 준비를 했어요 (" + ready + " / " + need + ")";
+        messageTimer = 999f;
+    }
+
+    public void ApplyBuy(int slot, int index)
+    {
+        if (run == null || slot < 0 || slot >= run.Players.Count) return;
+        PlayerCombatant p = run.Players[slot];
+        List<ShopItem> stock;
+        if (!run.ShopStock.TryGetValue(p, out stock) || index < 0 || index >= stock.Count) return;
+        int goldBefore = p.Gold;
+        string msg = run.Buy(p, stock[index]);
+        if (p.Gold != goldBefore) SoundManager.Play("Gold");   // 3-252: 샀으면 짤랑
+        if (!gameObject.activeSelf) return;
+        if (NetGate.CanControl(slot)) { message.text = msg; messageTimer = 2.5f; }
+        Redraw();
+        if (OnBought != null) OnBought();
+    }
+
+    public void ApplySell(int slot, int relicIndex)
+    {
+        if (run == null || slot < 0 || slot >= run.Players.Count) return;
+        PlayerCombatant p = run.Players[slot];
+        if (relicIndex < 0 || relicIndex >= p.Relics.Count) return;
+        int goldBefore = p.Gold;
+        string msg = run.SellRelic(p, p.Relics[relicIndex]);
+        if (p.Gold != goldBefore) SoundManager.Play("Gold");   // 3-252
+        if (!gameObject.activeSelf) return;
+        if (NetGate.CanControl(slot)) { message.text = msg; messageTimer = 2.5f; }
+        Redraw();
+        if (OnBought != null) OnBought();
+    }
 
     void Redraw()
     {
@@ -155,7 +221,7 @@ public class ShopPanel : MonoBehaviour
             if (item.Sold) SoldMark(icon.transform);
         }
 
-        Button leave = UIFactory.MakeButton("Leave", content, "떠나기", UIFactory.Hex("#4A3A2A"), () => { if (OnHover != null) OnHover(null, null); if (OnLeave != null) OnLeave(); }, 30);
+        Button leave = UIFactory.MakeButton("Leave", content, "떠나기", UIFactory.Hex("#4A3A2A"), () => LeaveClicked(), 30);
         UIFactory.Place((RectTransform)leave.transform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-50, 30), new Vector2(240, 74));
         UIFactory.SkinButton(leave, UIFactory.GothicButton);   // 3-181: 8번 공용 버튼 틀 (그림 없던 버튼)
     }
@@ -192,6 +258,7 @@ public class ShopPanel : MonoBehaviour
                 UIFactory.Stretch(img.rectTransform);
                 img.raycastTarget = true;
                 Button b = img.gameObject.AddComponent<Button>();
+                UIFactory.AddClick(b);   // 3-266: 그림 버튼도 누르는 소리
                 b.targetGraphic = img;
                 ColorBlock cb = b.colors;
                 cb.highlightedColor = new Color(1.2f, 1.2f, 1.2f, 1f);   // 마우스를 올리면 살짝 밝게
@@ -268,8 +335,9 @@ public class ShopPanel : MonoBehaviour
         UIFactory.Stretch(hit.rectTransform);
         hit.raycastTarget = true;
         Button leave = hit.gameObject.AddComponent<Button>();
+        UIFactory.AddClick(leave);   // 3-266: 그림 버튼도 누르는 소리
         leave.transition = Selectable.Transition.None;
-        leave.onClick.AddListener(() => { if (OnHover != null) OnHover(null, null); if (OnLeave != null) OnLeave(); });
+        leave.onClick.AddListener(() => LeaveClicked());
         HoverRelay leaveHover = hit.gameObject.AddComponent<HoverRelay>();
         leaveHover.OnChange = (on) => { glow.color = new Color(1f, 0.85f, 0.55f, on ? 0.35f : 0f); };   // 마우스를 올리면 은은하게 빛남
         Text leaveText = UIFactory.MakeText("Label", leaveSpot, "떠나기", Mathf.RoundToInt(14 * k), UIFactory.Hex("#F4EAD6"), TextAnchor.MiddleCenter);
@@ -373,7 +441,12 @@ public class ShopPanel : MonoBehaviour
             dragGhost = null;
             sellGlow.color = new Color(1f, 0.8f, 0.3f, 0f);
             if (!RectTransformUtility.RectangleContainsScreenPoint(sellZone, e.position, e.pressEventCamera)) return;   // 판매대 밖 = 취소
+            int slot = run.Players.IndexOf(p);
+            if (!NetGate.CanControl(slot)) return;
+            if (NetGate.Intercept("SELL|" + slot + "|" + p.Relics.IndexOf(r))) return;   // 3-244 온라인
+            int goldBefore = p.Gold;
             message.text = run.SellRelic(p, r);
+            if (p.Gold != goldBefore) SoundManager.Play("Gold");   // 3-257: 혼자 할 때 팔아도 짤랑
             messageTimer = 2.5f;
             Redraw();
             if (OnBought != null) OnBought();   // 골드·아티팩트 줄 다시 그리기 (사기와 같은 알림)
@@ -423,7 +496,13 @@ public class ShopPanel : MonoBehaviour
     void TryBuy(PlayerCombatant p, ShopItem item)
     {
         if (OnHover != null) OnHover(null, null);
+        int slot = run.Players.IndexOf(p);
+        if (!NetGate.CanControl(slot)) return;   // 3-244 온라인: 남의 상점 칸은 보기만
+        List<ShopItem> stock;
+        if (NetGate.Active && run.ShopStock.TryGetValue(p, out stock) && NetGate.Intercept("BUY|" + slot + "|" + stock.IndexOf(item))) return;
+        int goldBefore = p.Gold;
         message.text = run.Buy(p, item);
+        if (p.Gold != goldBefore) SoundManager.Play("Gold");   // 3-257: 혼자 할 때 사도 짤랑 (온라인은 ApplyBuy)
         messageTimer = 2.5f;
         Redraw();
         if (OnBought != null) OnBought();

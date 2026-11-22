@@ -50,6 +50,10 @@ public class CompendiumPanel : MonoBehaviour
     private Text upgradeLabel;
     private Image upgradeImage;                        // 3-194: 강화 보기 버튼 그림 (꺼짐 = 청록 판 / 켜짐 = 금빛 판)
     private Sprite toggleOffArt, toggleOnArt;
+    // 3-230: 새 도감 그림
+    private Image bgDim;
+    private Sprite bgHome, bgCards, bgRelics;
+    private Sprite homeRelicArt;
     private int cardTab;
     private int page;
     private bool showUpgraded;
@@ -112,6 +116,11 @@ public class CompendiumPanel : MonoBehaviour
         UIFactory.Stretch(dim.rectTransform);   // 뒤 화면 클릭도 막음
         // 3-189: 도감 배경 그림 (보랏빛 성문·계단) + 위에 어두운 막 (글자가 잘 보이게)
         Sprite bgArt = Resources.Load<Sprite>("Backgrounds/Compendium_BG");
+        // 3-230: 화면마다 다른 배경 (첫 화면 = 보름달 성 / 카드 = 보라 성문 / 아티팩트 = 녹색 지하 감옥)
+        bgDim = dim;
+        bgCards = bgArt;
+        bgHome = Resources.Load<Sprite>("Backgrounds/Compendium_Home_BG");
+        bgRelics = Resources.Load<Sprite>("Backgrounds/Compendium_Relic_BG");
         if (bgArt != null)
         {
             dim.sprite = bgArt;
@@ -122,6 +131,7 @@ public class CompendiumPanel : MonoBehaviour
             shade.raycastTarget = false;
         }
         homeArt = Resources.Load<Sprite>("UI/Compendium/Comp_HomeButton");
+        homeRelicArt = Resources.Load<Sprite>("UI/Compendium/Comp_HomeButton_Relic");   // 3-230: 아티팩트 = 회색 판
         unknownCardArt = Resources.Load<Sprite>("UI/Compendium/Comp_UnknownCard");
         unknownRelicArt = Resources.Load<Sprite>("UI/Compendium/Comp_UnknownRelic");
         detailArt = Resources.Load<Sprite>("UI/Compendium/Comp_DetailBox");
@@ -138,8 +148,10 @@ public class CompendiumPanel : MonoBehaviour
 
         // 오른쪽 아래: 처음 화면에서는 [닫기], 안쪽 화면에서는 [뒤로]
         backButton = UIFactory.MakeButton("Back", transform, "닫기", UIFactory.Hex("#4A3A5A"), Back, 28);
-        UIFactory.Place((RectTransform)backButton.transform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-50, 30), new Vector2(220, 70));
-        UIFactory.SkinButton(backButton, UIFactory.GothicButton);   // 3-181: 8번 공용 버튼 틀 (그림 없던 버튼)
+        UIFactory.Place((RectTransform)backButton.transform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-50, 36), new Vector2(240, 72));
+        // 3-230: 보랏빛 가시 틀 (판이 그림의 약 76% → 1.3배로 키워서 판이 버튼 칸에 맞게)
+        if (UIFactory.SkinButton(backButton, "UI/Compendium/Comp_BackButton", 1.3f) == null)
+            UIFactory.SkinButton(backButton, UIFactory.GothicButton);   // 3-181
     }
 
     void BuildHome()
@@ -147,7 +159,10 @@ public class CompendiumPanel : MonoBehaviour
         home = UIFactory.MakeRect("Home", transform);
         UIFactory.Stretch(home);
         homeCardCount = HomeButton("카드", new Vector2(-300, -20), () => ShowCards());
+        Sprite keep = homeArt;
+        if (homeRelicArt != null) homeArt = homeRelicArt;   // 3-230: 아티팩트 버튼만 회색 판 그림
         homeRelicCount = HomeButton("아티팩트", new Vector2(300, -20), () => ShowRelics());
+        homeArt = keep;
         Text hint = UIFactory.MakeText("Hint", home, "한 번이라도 본 카드·아티팩트만 보입니다. 아직 못 본 것은 ? 로 가려져 있어요.", 22, new Color(1f, 1f, 1f, 0.55f), TextAnchor.MiddleCenter);
         UIFactory.Place(hint.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -260), new Vector2(1400, 40));
     }
@@ -164,7 +179,7 @@ public class CompendiumPanel : MonoBehaviour
             bi.sprite = homeArt;
             bi.type = Image.Type.Simple;
             bi.color = Color.white;
-            rt.sizeDelta = new Vector2(468, 306);   // 그림 비율 그대로
+            rt.sizeDelta = new Vector2(480, 480f * homeArt.rect.height / homeArt.rect.width);   // 3-230: 그림 비율 그대로
         }
         else
         {
@@ -223,7 +238,7 @@ public class CompendiumPanel : MonoBehaviour
 
         // 오른쪽 설명 상자 (마우스를 올린 아티팩트)
         Image box = UIFactory.MakeImage("Detail", relicPage, new Color(0.1f, 0.08f, 0.14f, 0.95f));
-        UIFactory.Place(box.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-40, 0), new Vector2(440, 512));   // 3-189: 그림 비율
+        UIFactory.Place(box.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-30, -10), new Vector2(470, 505));   // 3-231: 새 사슬 팻말 (그림 비율 882:948)
         box.raycastTarget = false;
         if (detailArt != null)
         {
@@ -233,7 +248,7 @@ public class CompendiumPanel : MonoBehaviour
         }
         else box.gameObject.AddComponent<Outline>().effectColor = UIFactory.Hex("#6A5A8A");
         detailText = UIFactory.MakeText("Text", box.transform, "", 22, UIFactory.Hex("#E8E0F0"), TextAnchor.UpperLeft);
-        UIFactory.Stretch(detailText.rectTransform, 40, 40, 44, 44);   // 3-189: 틀 두께만큼 안쪽
+        UIFactory.Stretch(detailText.rectTransform, 78, 78, 92, 58);   // 3-231: 새 팻말 판 안쪽 (사슬·가시 틀 두께만큼)
         detailText.supportRichText = true;
         detailText.raycastTarget = false;
         relicPage.gameObject.SetActive(false);
@@ -242,6 +257,7 @@ public class CompendiumPanel : MonoBehaviour
     // ==================== 열기 · 닫기 ====================
     public void Open()
     {
+        SoundManager.Play("PageFlip");   // 3-252
         gameObject.SetActive(true);
         transform.SetAsLastSibling();   // 모든 화면 위에
         ShowHome();
@@ -266,6 +282,9 @@ public class CompendiumPanel : MonoBehaviour
         cardPage.gameObject.SetActive(m == Mode.Cards);
         relicPage.gameObject.SetActive(m == Mode.Relics);
         backButton.GetComponentInChildren<Text>().text = m == Mode.Home ? "닫기" : "뒤로";
+        // 3-230: 화면에 맞는 배경으로 바꿈 (그림이 없으면 그대로)
+        Sprite bgNow = m == Mode.Home ? bgHome : (m == Mode.Relics ? bgRelics : bgCards);
+        if (bgDim != null && bgNow != null) bgDim.sprite = bgNow;
     }
 
     void ShowHome()
@@ -307,7 +326,15 @@ public class CompendiumPanel : MonoBehaviour
         title.text = "도감 — 카드";
         countText.text = tab.Label + "   발견 " + seen + " / " + list.Count + (showUpgraded ? "   ·   강화된 모습" : "");
         upgradeLabel.text = "강화 보기: " + (showUpgraded ? "켜짐" : "꺼짐");
-        if (toggleOffArt != null) upgradeImage.sprite = (showUpgraded && toggleOnArt != null) ? toggleOnArt : toggleOffArt;   // 3-194
+        if (toggleOffArt != null)
+        {
+            upgradeImage.sprite = (showUpgraded && toggleOnArt != null) ? toggleOnArt : toggleOffArt;   // 3-194
+            // 3-230: 켜짐(주황 불씨)·꺼짐(파란 불꽃) 그림 높이가 달라서, 가로 340 고정 + 세로는 그림 비율, 가운데 자리는 그대로
+            RectTransform ur = upgradeImage.rectTransform;
+            ur.pivot = new Vector2(0.5f, 0.5f);
+            ur.sizeDelta = new Vector2(340f, 340f * upgradeImage.sprite.rect.height / upgradeImage.sprite.rect.width);
+            ur.anchoredPosition = new Vector2(40 + 170, 30 + 80);   // 3-231: 켜짐·꺼짐 그림을 같은 크기·같은 판 위치로 맞춰서 바꿔도 안 움직임
+        }
 
         // 탭 (지금 탭은 밝은 색 + 금테)
         int n = CardTabs.Length;
@@ -318,7 +345,7 @@ public class CompendiumPanel : MonoBehaviour
             Button b = UIFactory.MakeButton("Tab" + i, cardTabs, CardTabs[i].Label, on ? UIFactory.Hex("#5A4A8A") : UIFactory.Hex("#2C2840"),
                 () => { cardTab = index; page = 0; RedrawCards(); }, 24);
             UIFactory.Place((RectTransform)b.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2((i - (n - 1) / 2f) * 210, 0), new Vector2(196, 50));
-            if (on) b.gameObject.AddComponent<Outline>().effectColor = UIFactory.Hex("#FFD27A");
+            if (!SkinTab(b, "UI/Compendium/Comp_Tab_Card" + i, on) && on) b.gameObject.AddComponent<Outline>().effectColor = UIFactory.Hex("#FFD27A");
         }
 
         // 카드 격자 (덱 보기와 같은 배치)
@@ -371,9 +398,7 @@ public class CompendiumPanel : MonoBehaviour
             back.type = Image.Type.Simple;
             back.color = Color.white;
             back.raycastTarget = false;
-            Text s2 = UIFactory.MakeText("Sub", back.transform, "아직 못 본 카드", 17, UIFactory.Hex("#C8B8A0"), TextAnchor.MiddleCenter);
-            UIFactory.Place(s2.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0, 30), new Vector2(150, 28));
-            s2.raycastTarget = false;
+            // 3-230: 새 그림에 "아직 못 본 카드" 글자가 들어 있어서 코드 글자는 안 씀
             return;
         }
         Outline o = back.gameObject.AddComponent<Outline>();
@@ -432,7 +457,7 @@ public class CompendiumPanel : MonoBehaviour
             Button b = UIFactory.MakeButton("Tab" + i, relicTabs, RelicTabNames[i], on ? UIFactory.Hex("#5A4A8A") : UIFactory.Hex("#2C2840"),
                 () => { relicTab = index; RedrawRelics(); }, 24);
             UIFactory.Place((RectTransform)b.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2((i - (n - 1) / 2f) * 210, 0), new Vector2(196, 50));
-            if (on) b.gameObject.AddComponent<Outline>().effectColor = UIFactory.Hex("#FFD27A");
+            if (!SkinTab(b, "UI/Compendium/Comp_Tab_Relic" + i, on) && on) b.gameObject.AddComponent<Outline>().effectColor = UIFactory.Hex("#FFD27A");
         }
 
         // 격자: 한 줄 9개, 위에서부터 (보스 35개 = 4줄이 최대)
@@ -558,5 +583,28 @@ public class CompendiumPanel : MonoBehaviour
     static void Clear(RectTransform layer)
     {
         for (int i = layer.childCount - 1; i >= 0; i--) Destroy(layer.GetChild(i).gameObject);
+    }
+
+    // 3-230: 탭 그림 (직업·등급마다 색이 다른 가시 틀). 고른 탭 = 밝게 + 조금 크게 + 금빛 글자 테두리, 안 고른 탭 = 살짝 어둡게
+    static bool SkinTab(Button b, string path, bool on)
+    {
+        Sprite s = Resources.Load<Sprite>(path);
+        if (s == null) return false;
+        Image img = b.GetComponent<Image>();
+        img.sprite = s;
+        img.type = Image.Type.Simple;
+        img.color = on ? Color.white : new Color(0.72f, 0.72f, 0.72f, 1f);
+        RectTransform r = (RectTransform)b.transform;
+        r.sizeDelta = new Vector2(200f, 200f * s.rect.height / s.rect.width);
+        if (on) r.localScale = new Vector3(1.08f, 1.08f, 1f);
+        Text t = b.GetComponentInChildren<Text>();
+        if (t != null)
+        {
+            t.fontStyle = FontStyle.Bold;
+            Outline o = t.gameObject.AddComponent<Outline>();
+            o.effectColor = on ? new Color(0.55f, 0.38f, 0.05f, 0.95f) : new Color(0f, 0f, 0f, 0.9f);
+            o.effectDistance = new Vector2(1.5f, -1.5f);
+        }
+        return true;
     }
 }

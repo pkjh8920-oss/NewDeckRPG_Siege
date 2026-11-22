@@ -117,7 +117,7 @@ public class EndingPanel : MonoBehaviour
             Button toTitle = UIFactory.MakeButton("ToTitle", buttons, "타이틀로", UIFactory.Hex("#3A3446"), () => Close(onTitle), 30);
             UIFactory.Place((RectTransform)toTitle.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-170, 0), new Vector2(300, 74));
             UIFactory.SkinButton(toTitle, UIFactory.GothicButton);   // 3-181: 8번 공용 버튼 틀 (그림 없던 버튼)
-            Button again = UIFactory.MakeButton("NewRun", buttons, "새 런", UIFactory.Hex("#7846C8"), () => Close(onNewRun), 30);
+            Button again = UIFactory.MakeButton("NewRun", buttons, "새 런", UIFactory.Hex("#7846C8"), NewRunClicked, 30);
             UIFactory.Place((RectTransform)again.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(170, 0), new Vector2(300, 74));
             UIFactory.SkinButton(again, UIFactory.GothicButton);   // 3-181: 8번 공용 버튼 틀 (그림 없던 버튼)
         }
@@ -160,7 +160,7 @@ public class EndingPanel : MonoBehaviour
         UIFactory.Stretch(buttons);
         buttonGroup = buttons.gameObject.AddComponent<CanvasGroup>();
         ArtButton(buttons, 0, "타이틀로", 336, 524, 496, 564, () => Close(onTitle));
-        ArtButton(buttons, 1, "새 런", 526, 524, 690, 564, () => Close(onNewRun));
+        ArtButton(buttons, 1, "새 런", 526, 524, 690, 564, NewRunClicked);
     }
 
     // 그림 속 버튼 틀 위에 투명 버튼 + 글자. 마우스를 올리면 은은한 빛
@@ -175,6 +175,7 @@ public class EndingPanel : MonoBehaviour
         UIFactory.Stretch(hit.rectTransform);
         hit.raycastTarget = true;
         Button b = hit.gameObject.AddComponent<Button>();
+        UIFactory.AddClick(b);   // 3-266: 그림 버튼도 누르는 소리
         b.transition = Selectable.Transition.None;
         b.onClick.AddListener(onClick);
         HoverRelay hover = hit.gameObject.AddComponent<HoverRelay>();
@@ -214,6 +215,14 @@ public class EndingPanel : MonoBehaviour
     {
         StopAllCoroutines();
         gameObject.SetActive(false);
+    }
+
+    // 3-272: [새 런] 은 엔딩 화면을 여기서 닫지 않음 → 부른 쪽(BattleScreen)이 새 런을 시작할 때 닫음
+    //   예전: 먼저 닫고 → 온라인이면 명령이 돌아올 때까지 옛 전투 화면이 보였고,
+    //         "엔딩이 열려 있을 때만 새 런" 규칙 때문에 누른 사람만 새 런이 안 됨 (화면이 서로 달라짐)
+    void NewRunClicked()
+    {
+        if (onNewRun != null) onNewRun();
     }
 
     void Close(System.Action after)

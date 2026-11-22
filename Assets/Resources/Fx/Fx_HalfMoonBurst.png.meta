@@ -84,7 +84,7 @@ TextureImporter:
     forceMaximumCompressionQuality_BC6H_BC7: 0
   - serializedVersion: 4
     buildTarget: WebGL
-    maxTextureSize: 1024
+    maxTextureSize: 768
     resizeAlgorithm: 0
     textureFormat: 12
     textureCompression: 1

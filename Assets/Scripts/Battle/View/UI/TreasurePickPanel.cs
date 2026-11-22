@@ -70,6 +70,7 @@ public class TreasurePickPanel : MonoBehaviour
         run = r;
         results = null;
         picker = FirstUnpicked();
+        if (NetGate.Active) { picker = NetGate.Me; NetPickForAway(); }   // 3-244 온라인: 나는 내 것만 고름
         gameObject.SetActive(true);
         transform.SetAsLastSibling();
         Redraw();
@@ -151,6 +152,7 @@ public class TreasurePickPanel : MonoBehaviour
                     img.sprite = tabArt;
                     UIFactory.Stretch(img.rectTransform);
                     Button tb = img.gameObject.AddComponent<Button>();
+                    UIFactory.AddClick(tb);   // 3-266: 그림 버튼도 누르는 소리
                     tb.transition = Selectable.Transition.None;
                     tb.onClick.AddListener(() => { picker = index; Redraw(); });
                     Text tl = UIFactory.MakeText("Label", holder, label, 22, on ? Color.Lerp(PlayerColor(i), Color.white, 0.35f) : PlayerColor(i), TextAnchor.MiddleCenter);
@@ -253,6 +255,7 @@ public class TreasurePickPanel : MonoBehaviour
             else
             {
                 Button b = frame.gameObject.AddComponent<Button>();
+                UIFactory.AddClick(b);   // 3-266: 그림 버튼도 누르는 소리
                 b.onClick.AddListener(() => Pick(jj));
             }
 
@@ -279,8 +282,49 @@ public class TreasurePickPanel : MonoBehaviour
         FitButtonText(ok);   // 3-212   // 3-211: 보랏빛 불꽃 달린 새 버튼 (판이 그림의 74%라 1.35배로 키움). 3-181: 6번 그림 버튼 (못 누를 때는 버튼 기본 어두운 색이 그림에 입혀짐)
     }
 
+    // ---------------- 3-244 온라인 ----------------
+    // 나간 사람은 받을 수 있는 첫 물건을 고른 걸로 (모든 화면에서 같은 때에 불림 → 같은 결과)
+    public void NetPickForAway()
+    {
+        // 3-264: 보물 칸이 아니면 고른 목록이 비어 있음(길이 0) → 그대로 돌리면 배열 범위 오류 (LEFT|1 오류의 원인)
+        if (run == null || run.TreasurePicks.Length < run.Players.Count) return;
+        for (int i = 0; i < run.Players.Count; i++)
+        {
+            if (!NetGate.IsAway(i) || run.TreasurePicks[i] >= 0) continue;
+            for (int j = 0; j < run.TreasureItems.Count; j++)
+                if (run.CanTakeTreasure(run.Players[i], run.TreasureItems[j])) { run.PickTreasure(i, j); break; }
+        }
+        if (gameObject.activeSelf && results == null) Redraw();
+    }
+
+    // "TRS|자리|물건" 명령
+    public void ApplyPick(int slot, int item)
+    {
+        if (run == null || !gameObject.activeSelf || results != null) return;
+        run.PickTreasure(slot, item);
+        Redraw();
+    }
+
+    // "TRSR" 명령: 나눠 받기 (주사위는 런의 seed 로 → 모든 화면이 같은 결과)
+    public void ApplyResolve()
+    {
+        if (run == null || !gameObject.activeSelf || results != null || !run.AllTreasurePicked) return;
+        results = run.ResolveTreasure();
+        SoundManager.Play("RelicGet");   // 3-252: 보물 나눠 받음
+        Redraw();
+    }
+
+    // "TRSD" 명령: [계속] / [다음 상자]
+    public void ApplyDone()
+    {
+        if (run == null || !gameObject.activeSelf || results == null) return;
+        if (OnDone != null) OnDone();
+    }
+
     void Pick(int item)
     {
+        if (!NetGate.CanControl(picker)) return;
+        if (NetGate.Intercept("TRS|" + picker + "|" + item)) return;   // 3-244 온라인
         run.PickTreasure(picker, item);
         // 다음 안 고른 사람으로 자동으로 넘어감 (한 PC 에서 차례로)
         int next = -1;
@@ -296,7 +340,9 @@ public class TreasurePickPanel : MonoBehaviour
     void Resolve()
     {
         if (!run.AllTreasurePicked) return;
+        if (NetGate.Intercept("TRSR")) return;   // 3-244 온라인
         results = run.ResolveTreasure();
+        SoundManager.Play("RelicGet");   // 3-252
         Redraw();
     }
 
@@ -306,7 +352,7 @@ public class TreasurePickPanel : MonoBehaviour
         UIFactory.Place(t.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 40), new Vector2(1500, 500));
         // 3-174: 상자가 더 남았으면 (아직 보물 칸 안) "다음 상자" → 닫힌 두 번째 상자가 나옴
         bool moreChest = run.Place == RunPlace.Treasure;
-        Button next = UIFactory.MakeButton("Continue", content, moreChest ? "다음 상자" : "계속", UIFactory.Hex("#4A3A2A"), () => { if (OnDone != null) OnDone(); }, 30);
+        Button next = UIFactory.MakeButton("Continue", content, moreChest ? "다음 상자" : "계속", UIFactory.Hex("#4A3A2A"), () => { if (NetGate.Intercept("TRSD")) return; if (OnDone != null) OnDone(); }, 30);
         UIFactory.Place((RectTransform)next.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0, 70), new Vector2(360, 70));
         UIFactory.SkinButton(next, "UI/Treasure/Treasure_Button", 1.3f);
         FitButtonText(next);   // 3-212   // 3-181: [나눠 받기] 와 같은 그림

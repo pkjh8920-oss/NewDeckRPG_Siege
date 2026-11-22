@@ -112,6 +112,7 @@ public class DeckViewPanel : MonoBehaviour
 
     void Open()
     {
+        SoundManager.Play("PageFlip");   // 3-252: 책장 넘기는 소리
         gameObject.SetActive(true);
         transform.SetAsLastSibling();
         Redraw();

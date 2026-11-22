@@ -43,6 +43,15 @@ public class AltarPanel : MonoBehaviour
     public List<string> Results { get { return results; } }
     public bool NobodyEligible { get; private set; }                   // 3-129: 덱이 적어서 아무도 못 썼는지
 
+    // 3-244 온라인: 각자 자기 제단만. 바치기 = "ALTO|자리|덱번호,..." (후보 카드 뽑기는 모든 화면에서 같은 순서로)
+    //   고르기 = "ALTT|자리|후보번호", 안 바치기 = "ALTS|자리". 모두 끝나면 다 같이 다음으로
+    private bool online;
+    private List<PlayerCombatant> netPlayers = new List<PlayerCombatant>();
+    private readonly HashSet<int> netNeed = new HashSet<int>();
+    private readonly HashSet<int> netDone = new HashSet<int>();
+    private readonly Dictionary<int, List<CardData>> netSacr = new Dictionary<int, List<CardData>>();
+    private readonly Dictionary<int, List<CardData>> netOffer = new Dictionary<int, List<CardData>>();
+
     public static AltarPanel Create(Transform parent)
     {
         RectTransform rt = UIFactory.MakeRect("Altar", parent);
@@ -144,6 +153,7 @@ public class AltarPanel : MonoBehaviour
         run = r;
         onDone = done;
         blood = bloodAltar;
+        if (blood) SoundManager.Play("AltarBlood", "Altar"); else SoundManager.Play("Altar");   // 3-252 / 3-258: 피의 제단 = 0.75배 느린 소리
         if (bloodScene != null) bloodScene.SetActive(blood);   // 3-148: 피의 제단이면 배경 그림
         // 3-153: 피의 제단 = 가시 틀 + 붉은 보석 / 3-181: 제물의 제단 = 새 고딕 틀 (그림 비율 약 2.65 : 1)
         if (blood)
@@ -162,10 +172,116 @@ public class AltarPanel : MonoBehaviour
             if (blood ? run.BloodAltarAvailable(p) : run.AltarAvailable(p)) queue.Add(p);
         skipButton.GetComponentInChildren<Text>().text = blood ? "떠나기" : "바치지 않기";
         NobodyEligible = queue.Count == 0;
+        online = NetGate.Active;
+        if (online)
+        {
+            netPlayers = new List<PlayerCombatant>(players);
+            netNeed.Clear(); netDone.Clear(); netSacr.Clear(); netOffer.Clear();
+            for (int i = 0; i < players.Count; i++)
+                if (queue.Contains(players[i]) && !NetGate.IsAway(i)) netNeed.Add(i);
+            queue.Clear();
+            if (netNeed.Count == 0) { Finish(); return; }
+            gameObject.SetActive(true);
+            transform.SetAsLastSibling();
+            if (netNeed.Contains(NetGate.Me))
+            {
+                current = players[NetGate.Me];
+                selected.Clear();
+                choosingReward = false;
+                ((RectTransform)mainButton.transform).anchoredPosition = new Vector2(160, 26);
+                DrawSacrifice();
+            }
+            else ShowWaiting();
+            return;
+        }
         if (queue.Count == 0) { Finish(); return; }
         gameObject.SetActive(true);
         transform.SetAsLastSibling();
         Next();
+    }
+
+    // ---------------- 3-244 온라인 ----------------
+    void ShowWaiting()
+    {
+        current = null;
+        choosingReward = false;
+        ClearGrid();
+        title.text = AltarName;
+        sub.text = "동료가 제단 앞에 있습니다 . . .  (" + netDone.Count + " / " + netNeed.Count + " 끝남)";
+        mainButton.interactable = false;
+        mainLabel.text = "기다리는 중...";
+        skipButton.gameObject.SetActive(false);
+        ((RectTransform)mainButton.transform).anchoredPosition = new Vector2(0, 26);
+    }
+
+    // "ALTO": 바친 카드를 기억하고 후보 카드를 뽑음 (모든 화면에서 → 런의 무작위 수가 똑같이 줄어듦)
+    public void ApplyOffer(int slot, string indices)
+    {
+        if (!online || !IsOpen || !netNeed.Contains(slot) || netDone.Contains(slot) || netOffer.ContainsKey(slot)) return;
+        PlayerCombatant p = netPlayers[slot];
+        List<CardData> sac = new List<CardData>();
+        foreach (string t in indices.Split(','))
+        {
+            int i;
+            if (int.TryParse(t, out i) && i >= 0 && i < p.Deck.Count && !sac.Contains(p.Deck[i])) sac.Add(p.Deck[i]);
+        }
+        if (sac.Count != NeedCount) return;
+        List<CardData> list = blood ? run.BloodAltarOffer(p) : run.AltarOffer(p);
+        netSacr[slot] = sac;
+        netOffer[slot] = list;
+        if (slot != NetGate.Me) return;
+        // 내 것: 후보 카드를 보여 줌 (한 PC 의 2단계와 같은 화면)
+        current = p;
+        selected.Clear();
+        selected.AddRange(sac);
+        choosingReward = true;
+        foreach (CardData oc in list) Discovery.SeeCard(oc.Id);
+        ClearGrid();
+        title.text = blood ? "피의 제단이 응답했다!" : "제단이 응답했다!";
+        sub.text = OfferSummary(list) + "\n<size=20><color=#C8C0B0>원하는 1장을 고르세요. (바친 카드 " + sac.Count + "장은 덱에서 사라집니다)</color></size>";
+        int n = list.Count;
+        int cols; float scale;
+        Layout(n, out cols, out scale, blood ? 0 : GameBalance.AltarOfferCols);
+        for (int i = 0; i < n; i++)
+        {
+            int index = i;
+            CardView.CreateDisplay(grid, list[i], p.ManaName, SlotPos(i, n, cols, scale), scale, () => NetGate.Sender("ALTT|" + NetGate.Me + "|" + index));
+        }
+        mainButton.interactable = false;
+        mainLabel.text = "카드를 고르세요";
+        skipButton.gameObject.SetActive(false);
+        ((RectTransform)mainButton.transform).anchoredPosition = new Vector2(0, 26);
+    }
+
+    // "ALTT": 후보 중 1장을 받음
+    public void ApplyTake(int slot, int index)
+    {
+        if (!online || !IsOpen || netDone.Contains(slot) || !netOffer.ContainsKey(slot)) return;
+        List<CardData> list = netOffer[slot];
+        if (index < 0 || index >= list.Count) return;
+        PlayerCombatant p = netPlayers[slot];
+        if (blood) results.Add(run.BloodAltarExchange(p, netSacr[slot], list[index]));
+        else run.AltarExchange(p, netSacr[slot], list[index]);
+        netDone.Add(slot);
+        if (slot == NetGate.Me) ShowWaiting();
+        NetCheckDone();
+    }
+
+    // "ALTS": 바치지 않음 (아직 바치기 전일 때만)
+    public void ApplySkip(int slot)
+    {
+        if (!online || !IsOpen || netDone.Contains(slot) || netOffer.ContainsKey(slot) || !netNeed.Contains(slot)) return;
+        netDone.Add(slot);
+        if (slot == NetGate.Me) ShowWaiting();
+        NetCheckDone();
+    }
+
+    // 다 끝났는지 (나간 사람은 끝난 걸로 침)
+    public void NetCheckDone()
+    {
+        if (!online || !IsOpen) return;
+        foreach (int s in netNeed) if (!netDone.Contains(s) && !NetGate.IsAway(s)) { if (current == null) ShowWaiting(); return; }
+        Finish();
     }
 
     void Next()
@@ -267,6 +383,17 @@ public class AltarPanel : MonoBehaviour
     void OnMain()
     {
         if (choosingReward || selected.Count != NeedCount) return;
+        if (online)
+        {
+            if (current == null) return;
+            List<string> idx = new List<string>();
+            foreach (CardData c in selected) idx.Add(current.Deck.IndexOf(c).ToString());
+            mainButton.interactable = false;
+            mainLabel.text = "제단이 응답하는 중...";
+            skipButton.gameObject.SetActive(false);
+            NetGate.Sender("ALTO|" + NetGate.Me + "|" + string.Join(",", idx.ToArray()));
+            return;
+        }
         choosingReward = true;
         // 3-127: 직업 카드 10장 (등급은 한 장씩 따로) / 3-129 피의 제단: 3장 (희귀 이상)
         List<CardData> list = blood ? run.BloodAltarOffer(current) : run.AltarOffer(current);
@@ -302,6 +429,7 @@ public class AltarPanel : MonoBehaviour
     void OnSkip()
     {
         if (choosingReward) return;
+        if (online) { if (current != null) NetGate.Sender("ALTS|" + NetGate.Me); return; }
         if (queue.Count > 0) Next();
         else Finish();
     }

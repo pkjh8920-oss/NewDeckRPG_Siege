@@ -22,12 +22,26 @@ public class ScreenTransition : MonoBehaviour
     public const float MaxAngle = 9f;        // 라디안 (약 1.4바퀴)
 
     private static bool playing;
+    private static float playingSince;   // 3-241: 언제 시작했는지 (멈춰 버렸으면 풀어 주려고)
+
+    // 3-242: ▶ 를 다시 누르면 처음으로 (소용돌이 도중에 ■ 로 멈추면 playing 이 true 로 남아서 [싱글플레이]가 영영 안 눌렸음)
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void ResetStatics()
+    {
+        playing = false;
+        playingSince = 0f;
+    }
 
     // host 는 예전 호출과 맞추려고 받기만 함.
     // 코루틴은 따로 만든 오브젝트에서 돌림 → 화면을 바꾸는 코드가 StopAllCoroutines 를 불러도 효과가 멈추지 않음
     public static void Play(MonoBehaviour host, System.Action switchAction)
     {
-        if (playing) return;                 // 이미 넘어가는 중이면 무시 (두 번 눌러도 한 번만)
+        // 이미 넘어가는 중이면 무시 (두 번 눌러도 한 번만)
+        //   3-241: 단, 3초가 넘도록 안 끝났으면 중간에 멈춘 것 → 풀어 줌
+        //   (예전: 효과가 중간에 멈추면 playing 이 계속 true 라서 [싱글플레이] 같은 버튼이 다시는 안 눌렸음)
+        if (playing && Time.unscaledTime - playingSince < 3f) return;
+        playing = true;
+        playingSince = Time.unscaledTime;
         GameObject runner = new GameObject("ScreenTransitionRunner");
         ScreenTransition st = runner.AddComponent<ScreenTransition>();
         st.StartCoroutine(Run(switchAction, runner));
@@ -35,11 +49,21 @@ public class ScreenTransition : MonoBehaviour
 
     static IEnumerator Run(System.Action switchAction, GameObject runner)
     {
-        playing = true;
-
+        SoundManager.Play("Transition");   // 3-252: 화면 넘어가는 소리
         // 1) 화면 찍기 (그리기가 다 끝난 프레임 끝에서)
         yield return new WaitForEndOfFrame();
-        Texture2D shot = ScreenCapture.CaptureScreenshotAsTexture();
+        Texture2D shot = null;
+        try { shot = ScreenCapture.CaptureScreenshotAsTexture(); }
+        catch (System.Exception e) { Debug.LogWarning("[화면 전환] 화면 찍기 실패: " + e.Message); }
+        if (shot == null)
+        {
+            // 3-241: 화면을 못 찍으면 효과 없이 바로 바꿈 (멈추지 않게)
+            try { if (switchAction != null) switchAction(); }
+            catch (System.Exception e) { Debug.LogException(e); }
+            playing = false;
+            Destroy(runner);
+            yield break;
+        }
         shot.wrapMode = TextureWrapMode.Clamp;
 
         // 맨 위에 덮는 전용 캔버스

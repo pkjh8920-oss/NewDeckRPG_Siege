@@ -17,6 +17,8 @@ using System.Runtime.InteropServices;
 
 public static class WebQuit
 {
+    public static bool Quitting;   // 3-264: [종료]를 눌러서 일부러 소리를 끈 상태 (다른 곳에서 소리를 다시 켜지 않게)
+
 #if UNITY_WEBGL && !UNITY_EDITOR
     [DllImport("__Internal")]
     private static extern void WebQuitGame();
@@ -26,6 +28,11 @@ public static class WebQuit
     public static bool TryQuit()
     {
 #if UNITY_WEBGL && !UNITY_EDITOR
+        // 3-248: 탭이 안 닫히고 "종료했습니다" 화면으로 바뀌어도 게임은 뒤에서 돌고 있어서 배경음이 계속 나왔음 → 소리 끄고 멈춤
+        Quitting = true;
+        UnityEngine.AudioListener.volume = 0f;
+        UnityEngine.AudioListener.pause = true;
+        UnityEngine.Time.timeScale = 0f;
         WebQuitGame();
         return true;
 #else
