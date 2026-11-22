@@ -182,6 +182,7 @@ public class LevelUpPanel : MonoBehaviour
         sStr = current.Str; sCon = current.Con; sAgi = current.Agi;
         sMaxHp = current.MaxHp; sHp = current.Hp; sPoints = current.StatPoints;
         Redraw();
+        // 3-213: 레벨 업 이펙트는 스탯 창이 아니라 전투 화면의 캐릭터 몸에서 먼저 나옴 (BattleScreen.LevelUpRoutine)
     }
 
     void Finish()

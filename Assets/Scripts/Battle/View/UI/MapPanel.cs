@@ -70,7 +70,7 @@ public class MapPanel : MonoBehaviour
     {
         // 뒤의 전투 화면을 가리는 어두운 판 (마우스도 막음)
         Image dim = UIFactory.MakeImage("Dim", transform, new Color(0.05f, 0.04f, 0.06f, 0.96f), false);
-        UIFactory.Stretch(dim.rectTransform, 0, 0, 64, 0);   // 맨 위 64 = 위쪽 버튼 줄은 가리지 않음
+        UIFactory.Stretch(dim.rectTransform);   // 3-203: 화면 전체 (위쪽 버튼 줄 뒤까지 같은 배경)
 
         // 최종장용 성 그림 (평소엔 숨김). 양피지보다 먼저 만들어서 칸·선보다 뒤에 깔림
         castleMap = UIFactory.MakeImage("CastleMap", transform, Color.white, false);

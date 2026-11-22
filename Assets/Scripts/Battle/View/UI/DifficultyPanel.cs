@@ -8,7 +8,7 @@
 //   왼쪽 아래 [뒤로] = 캐릭터 선택으로 / 오른쪽 아래 [시작] = 이 난이도로 런 시작
 //
 // 처음부터 5개 모두 고를 수 있음. 기본 = 보통 (아무것도 안 눌러도 보통으로 시작)
-// 그림 (3-199): 버튼 = UI/Difficulty/Diff_Easy · Normal · Hard · VeryHard · Hell (난이도마다 판 색이 다른 틀)
+// 그림 (3-199 → 3-206 새 가시 틀): 버튼 = UI/Difficulty/Diff_Easy · Normal · Hard · VeryHard · Hell, 배경 = Backgrounds/Difficulty_BG
 //              설명 = UI/Difficulty/Diff_Box (사슬·가시 양피지), 배경 = Backgrounds/Compendium_BG
 //   고른 버튼 = 뒤에 난이도 색 빛 + 조금 크게. 새 그림이 없으면 예전 도감 버튼 그림(Comp_Toggle)으로
 //   그림이 없으면 색 네모로 보임
@@ -55,9 +55,10 @@ public class DifficultyPanel : MonoBehaviour
         // 배경 (도감과 같은 보랏빛 성문) + 어두운 막
         Image bg = UIFactory.MakeImage("Bg", transform, UIFactory.Hex("#0C0A12"), false);
         UIFactory.Stretch(bg.rectTransform);
-        Sprite bgArt = Resources.Load<Sprite>("Backgrounds/Compendium_BG");
+        Sprite bgArt = Resources.Load<Sprite>("Backgrounds/Difficulty_BG");   // 3-206: 횃불 성문 계단 (없으면 도감 배경)
+        if (bgArt == null) bgArt = Resources.Load<Sprite>("Backgrounds/Compendium_BG");
         if (bgArt != null) { bg.sprite = bgArt; bg.color = Color.white; }
-        Image shade = UIFactory.MakeImage("Shade", transform, new Color(0.02f, 0.01f, 0.04f, 0.55f), false);
+        Image shade = UIFactory.MakeImage("Shade", transform, new Color(0.02f, 0.01f, 0.04f, 0.35f), false);
         UIFactory.Stretch(shade.rectTransform);
         shade.raycastTarget = false;
 
@@ -85,10 +86,10 @@ public class DifficultyPanel : MonoBehaviour
             arts.Add(Resources.Load<Sprite>("UI/Difficulty/" + ArtNames[i]));
 
             Image img = UIFactory.MakeImage("Btn_" + d, transform, UIFactory.Hex("#2C2840"), false);
-            UIFactory.Place(img.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2((i - 2) * 340f, 190f), new Vector2(320, 126));
+            UIFactory.Place(img.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2((i - 2) * 340f, 190f), new Vector2(320, 98));   // 3-206: 새 가시 틀 버튼 비율 (약 3.25 : 1)
             img.raycastTarget = true;
             Text t = UIFactory.MakeText("Label", img.transform, DifficultyInfo.Name(d), 32, UIFactory.Hex(LabelColors[i]), TextAnchor.MiddleCenter);
-            UIFactory.Stretch(t.rectTransform, 30, 30, 30, 30);
+            UIFactory.Stretch(t.rectTransform, 34, 34, 18, 18);   // 3-206: 버튼이 낮아져서 위아래 여백 줄임
             t.font = UIFactory.TitleFont;
             t.raycastTarget = false;
             Outline o = t.gameObject.AddComponent<Outline>();
@@ -168,6 +169,8 @@ public class DifficultyPanel : MonoBehaviour
             if (arts[i] != null)
             {
                 img.sprite = arts[i];                                                    // 3-199: 난이도 색 판
+                // 3-216: 그림 비율 그대로 (가로 320 기준으로 세로를 맞춤 → 늘어나서 깨져 보이지 않게)
+                img.rectTransform.sizeDelta = new Vector2(320f, 320f * arts[i].rect.height / arts[i].rect.width);
                 img.color = on || hovered == Order[i] ? Color.white : new Color(0.82f, 0.82f, 0.82f, 1f);   // 안 고른 건 살짝 어둡게
             }
             else if (offArt != null)

@@ -56,7 +56,7 @@ public class ChoicePanel : MonoBehaviour
         // 뒤의 전투 화면을 가리는 어두운 판 (마우스도 막음). 성벽 위 밤하늘 느낌
         Image dim = UIFactory.MakeImage("Dim", transform, Color.white, false);
         dim.sprite = UIFactory.MakeGradient(UIFactory.Hex("#1A1E2C"), UIFactory.Hex("#07080C"));
-        UIFactory.Stretch(dim.rectTransform, 0, 0, 64, 0);   // 맨 위 64 = 위쪽 버튼 줄은 가리지 않음
+        UIFactory.Stretch(dim.rectTransform);   // 3-203: 화면 전체 (위쪽 버튼 줄 뒤까지 같은 배경. 버튼 줄은 맨 앞이라 가려지지 않음)
 
         // 2026-11-15 (3-76): 배경 그림 (Backgrounds/SiegeChoice.png = 달밤의 성문과 들판)
         //   그림이 있으면: 화면 비율이 달라도 그림 비율은 지키면서 빈틈 없이 꽉 채움 (EnvelopeParent)
@@ -67,7 +67,7 @@ public class ChoicePanel : MonoBehaviour
         {
             // 위쪽 64 (버튼 줄) 아래만 보이게 자르는 틀. RectMask2D = 틀 밖으로 나간 그림을 잘라 줌
             RectTransform frame = UIFactory.MakeRect("BgFrame", transform);
-            UIFactory.Stretch(frame, 0, 0, 64, 0);
+            UIFactory.Stretch(frame);   // 3-203: 위쪽 버튼 줄 뒤까지 그림이 이어지게
             frame.gameObject.AddComponent<RectMask2D>();
             Image art = UIFactory.MakeImage("BgArt", frame, Color.white, false);
             art.sprite = bgSprite;

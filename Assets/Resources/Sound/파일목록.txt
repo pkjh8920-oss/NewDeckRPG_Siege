@@ -36,5 +36,6 @@
   EnemyTurn   적 턴 시작
   BossAppear  보스 전투 시작
   EliteAppear  엘리트 등장 (없으면 BossAppear 소리) (3-200)
+  LevelUp     레벨 업 (없으면 PowerUp) (3-208)
   Victory     전투 승리 (짧은 음악)
   Defeat      패배 (짧은 음악)

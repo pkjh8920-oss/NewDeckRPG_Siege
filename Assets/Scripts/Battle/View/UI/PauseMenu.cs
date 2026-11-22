@@ -73,10 +73,6 @@ public class PauseMenu : MonoBehaviour
         MainButton("설정", -310, UIFactory.Hex("#3A3F4C"), () => { if (refreshSettings != null) refreshSettings(); settings.gameObject.SetActive(true); main.gameObject.SetActive(false); });
         titleConfirm = MainButton("타이틀로", -400, UIFactory.Hex("#4A3A5A"), PressTitle);
         quitConfirm = MainButton("게임 종료", -490, UIFactory.Hex("#5A2C2C"), PressQuit);
-#if UNITY_WEBGL && !UNITY_EDITOR
-        // 3-202: 웹에서는 "게임 종료"를 누르면 게임이 멈추기만 해서 버튼을 숨김 (브라우저 탭을 닫으면 종료)
-        { Button qb = quitConfirm.GetComponentInParent<Button>(); if (qb != null) qb.gameObject.SetActive(false); }
-#endif
         Text hint = UIFactory.MakeText("Hint", main, "Esc 로 닫기", 18, new Color(1, 1, 1, 0.5f), TextAnchor.MiddleCenter);
         UIFactory.Place(hint.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0, 18), new Vector2(300, 30));
         if (pauseArt != null)
@@ -258,7 +254,7 @@ public class PauseMenu : MonoBehaviour
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;   // 에디터: 플레이 멈춤
 #elif UNITY_WEBGL
-        // 3-202: 웹에서는 Application.Quit() 이 게임을 멈추기만 함 → 아무것도 안 함
+        WebQuit.TryQuit();   // 3-204: 웹 = 탭 닫기 시도 (막히면 종료 안내 화면)
 #else
         Application.Quit();                                // 빌드한 게임: 창 닫기
 #endif

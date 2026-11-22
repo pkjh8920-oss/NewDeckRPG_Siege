@@ -97,11 +97,11 @@ public class PlacePanel : MonoBehaviour
         // 뒤를 가리는 판 (맨 위 64 = 위쪽 버튼 줄은 가리지 않음)
         Image dim = UIFactory.MakeImage("Dim", transform, Color.white, false);
         dim.sprite = UIFactory.MakeGradient(UIFactory.Hex("#1C1A24"), UIFactory.Hex("#08080C"));
-        UIFactory.Stretch(dim.rectTransform, 0, 0, 64, 0);
+        UIFactory.Stretch(dim.rectTransform);   // 3-203: 화면 전체
 
         // 장면 배경: 위쪽 버튼 줄(64) 아래를 꽉 채움. 그림 비율(16:9)은 그대로 두고 넘치는 부분은 잘라 냄
         RectTransform sceneClip = UIFactory.MakeRect("SceneClip", transform);
-        UIFactory.Stretch(sceneClip, 0, 0, 64, 0);
+        UIFactory.Stretch(sceneClip);   // 3-203: 위쪽 버튼 줄 뒤까지 장면 그림이 이어지게
         sceneClip.gameObject.AddComponent<RectMask2D>();
         sceneBg = UIFactory.MakeImage("Scene", sceneClip, Color.white, false);
         sceneBg.rectTransform.anchorMin = sceneBg.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
@@ -209,7 +209,7 @@ public class PlacePanel : MonoBehaviour
         campBox = UIFactory.MakeRect("CampBox", transform);
         UIFactory.Stretch(campBox, 0, 0, 64, 0);
         Image shade = UIFactory.MakeImage("Shade", campBox, new Color(0f, 0f, 0f, 0.45f), false);   // 배경 그림을 살짝 어둡게
-        UIFactory.Stretch(shade.rectTransform);
+        UIFactory.Stretch(shade.rectTransform, 0, 0, -64, 0);   // 3-203: 위쪽 버튼 줄 뒤(64)까지 같이 어둡게 (top 이 음수 = 상자 밖 위로 늘림)
 
         Image emblem = UIFactory.MakeImage("Emblem", campBox, Color.white, false);
         emblem.sprite = Resources.Load<Sprite>("UI/Camp/Camp_Emblem");

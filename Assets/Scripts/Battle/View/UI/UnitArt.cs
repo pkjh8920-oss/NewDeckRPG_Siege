@@ -58,7 +58,7 @@ public static class UnitArt
         { "AbyssShell", 280f },     // 심연의 거대 껍질 (가로 약 670)
         { "ForgottenKing", 330f },  // 잊혀진 왕의 망령 (해골 근위병 2명과 함께라 조금 작게)
         { "RiftWatcher", 280f },    // 차원 균열의 감시자 (가로 약 660)
-        { "SunStatue", 380f }, { "MoonStatue", 380f },          // 심판의 쌍둥이 석상
+        { "SunStatue", 470f }, { "MoonStatue", 470f },          // 심판의 쌍둥이 석상 (3-219: 380 → 470, 캐릭터(360)보다 확실히 크게)
         { "HoundHandler", 330f }, { "Beast", 300f },            // 사냥개 조련사 & 굶주린 맹수
         { "StoneSentinel", 400f },  // 고대 석상 파수꾼
         { "SoulWitch", 370f },      // 영혼 결속 마녀
@@ -94,7 +94,7 @@ public static class UnitArt
         { "FrostMage", 0.01f }, { "Sniper", 0.005f }, { "Sniper_Throw", 0.005f },
         { "FrostMage_AbsoluteZero", 0.0757f }, { "FrostMage_LightningFall", 0.0757f }, { "FrostMage_ManaCharge", 0.0084f },
         { "Sniper_Attack", 0.0092f }, { "Sniper_Bayonet", 0.017f },   // 3-90: 스나이퍼 조준 사격 / 총검술   // 3-75: 몸 그림과 같은 구도라 몸 자리에 정확히 겹치게 계산한 값 { "FrostMage_Lightning", 0.033f }, { "FrostMage_Ice", 0.05f },
-        { "FortressLord", 0.02f }, { "Architect", 0.035f }, { "Architect_Attack", 0.07f },   // 3-187: 설계자 새 그림 (발 아래 빈 공간 3.5%)
+        { "FortressLord", 0.02f }, { "Architect", 0.035f }, { "Architect_Attack", 0.035f },   // 3-187: 설계자 새 그림 (발 아래 빈 공간 3.5%)
         { "Werewolf", 0.01f }, { "Orc", 0.01f }, { "ZombieKing", 0.01f }, { "Golem", 0.01f },
     };
     // 그림의 아래쪽 위치 (발이 바닥 줄에 닿게). 표에 없으면 예전처럼 -6

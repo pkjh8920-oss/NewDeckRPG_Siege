@@ -962,4 +962,7 @@ public static class GameBalance
     public const float FxIntroDelay = 0.2f;    // 전투 시작 → 땅에서 붉은 기운이 솟을 때까지
     public const float FxIntroReveal = 0.45f;  // 기운이 솟고 → 몬스터가 나타나기 시작할 때까지
     public const float FxIntroFade = 0.35f;    // 몬스터가 투명 → 다 보일 때까지
+    public const float FxLevelUpTime = 1.4f;   // 3-213: 승리 후 레벨 업 연출을 보여 주는 시간(초) → 그다음 보상 화면
+    // 3-214: 2스테이지 보스 확률 (합이 100 이 아니어도 됨, 비율로 계산). [0] 심연의 거대 껍질 / [1] 잊혀진 왕의 망령 (근위병 2명과 함께 3명) / [2] 차원 균열의 감시자
+    public static readonly int[] Stage2BossWeights = { 35, 30, 35 };
 }

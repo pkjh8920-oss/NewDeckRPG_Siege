@@ -116,9 +116,6 @@ public class TitlePanel : MonoBehaviour
         // 메뉴 5개 (3-180): 상태창 안에 글자 + 투명 버튼 (그림 크기가 바뀌어도 비율로 따라감)
         menuLayer = art.rectTransform;
         string[] names = { "싱글플레이", "멀티플레이", "도감", "설정", "종료" };   // 3-180: 도감 추가
-#if UNITY_WEBGL && !UNITY_EDITOR
-        names[4] = "탭 닫기로 종료";   // 3-202: 웹에서는 게임이 스스로 창을 닫을 수 없어서 안내만
-#endif
         for (int i = 0; i < names.Length; i++)
         {
             int index = i;
@@ -342,8 +339,7 @@ public class TitlePanel : MonoBehaviour
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;   // 에디터: 플레이 멈춤
 #elif UNITY_WEBGL
-        // 3-202: 웹(브라우저)에서는 Application.Quit() 을 부르면 창은 안 닫히고 게임만 멈춤(먹통)
-        //   → 아무것도 안 함. 플레이어가 브라우저 탭을 닫으면 끝
+        WebQuit.TryQuit();   // 3-204: 웹 = 탭 닫기 시도 (막히면 "게임을 종료했습니다" 화면). Application.Quit() 은 웹에서 먹통이 됨
 #else
         Application.Quit();                                // 빌드한 게임: 창 닫기
 #endif
@@ -790,6 +786,100 @@ public class TitlePanel : MonoBehaviour
 
         Button close = UIFactory.MakeButton("Close", box, "닫기", UIFactory.Hex("#3A3F4C"), () => { GameSettings.Save(); settings.gameObject.SetActive(false); }, 28);
         UIFactory.Place((RectTransform)close.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0, 30), new Vector2(220, 64));
+        AddDevQuestion(box, new Vector2(-30, 30));   // 3-205: 숨은 개발자 모드
+    }
+
+    // ==================== 3-205: 숨은 개발자 모드 ([?] → 비밀번호) ====================
+    //   설정 창 오른쪽 아래에 흐린 작은 [?]. 눌러야만 비밀번호 창이 뜸 (따로 설명 없음)
+    //   맞으면 DevPanel.TryUnlock → 이번 실행 동안 개발 버튼·F1 사용 가능
+    private RectTransform devDialog;
+    private InputField devInput;
+    private Text devMessage;
+
+    void AddDevQuestion(RectTransform parent, Vector2 fromBottomRight)
+    {
+        Button q = UIFactory.MakeButton("DevQ", parent, "?", new Color(1f, 1f, 1f, 0.06f), OpenDevDialog, 20);
+        UIFactory.Place((RectTransform)q.transform, new Vector2(1f, 0f), new Vector2(1f, 0f), fromBottomRight, new Vector2(34, 34));
+        Text t = q.GetComponentInChildren<Text>();
+        if (t != null) t.color = new Color(1f, 1f, 1f, 0.35f);   // 일부러 눈에 잘 안 띄게 흐리게
+    }
+
+    void OpenDevDialog()
+    {
+        if (DevPanel.Enabled) { devMessageToast(); return; }   // 이미 켜져 있으면 창 없이 알림만
+        if (devDialog == null) BuildDevDialog();
+        devInput.text = "";
+        devMessage.text = "";
+        devDialog.gameObject.SetActive(true);
+        devDialog.SetAsLastSibling();
+        devInput.Select();
+        devInput.ActivateInputField();
+    }
+
+    void devMessageToast()
+    {
+        if (devDialog == null) BuildDevDialog();
+        devMessage.text = "이미 켜져 있습니다";
+        devInput.text = "";
+        devDialog.gameObject.SetActive(true);
+        devDialog.SetAsLastSibling();
+    }
+
+    void BuildDevDialog()
+    {
+        RectTransform box = MakeDialog("DevDialog", new Vector2(620, 380), "?");
+        devDialog = (RectTransform)box.parent;
+
+        Image bg = UIFactory.MakeImage("Input", box, UIFactory.Hex("#1A1428"));
+        UIFactory.Place(bg.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -120), new Vector2(400, 70));
+        bg.gameObject.AddComponent<Outline>().effectColor = UIFactory.Hex("#8A6AC8");
+        Text text = UIFactory.MakeText("Text", bg.transform, "", 34, UIFactory.Hex("#FFD27A"), TextAnchor.MiddleCenter);
+        UIFactory.Stretch(text.rectTransform, 10, 10, 6, 6);
+        text.supportRichText = false;
+        Text placeholder = UIFactory.MakeText("Placeholder", bg.transform, "비밀번호", 24, new Color(1f, 1f, 1f, 0.4f), TextAnchor.MiddleCenter);
+        UIFactory.Stretch(placeholder.rectTransform, 10, 10, 6, 6);
+        devInput = bg.gameObject.AddComponent<InputField>();
+        devInput.textComponent = text;
+        devInput.placeholder = placeholder;
+        devInput.characterLimit = 20;
+        devInput.contentType = InputField.ContentType.Password;   // 입력하면 ●●● 로 보임
+        devInput.onEndEdit.AddListener(v =>
+        {
+#if ENABLE_INPUT_SYSTEM
+            bool enter = UnityEngine.InputSystem.Keyboard.current != null && UnityEngine.InputSystem.Keyboard.current.enterKey.wasPressedThisFrame;
+#else
+            bool enter = Input.GetKeyDown(KeyCode.Return);
+#endif
+            if (enter) SubmitDevPassword();   // 엔터로도 확인
+        });
+
+        devMessage = UIFactory.MakeText("Msg", box, "", 22, UIFactory.Hex("#FF8A7A"), TextAnchor.MiddleCenter);
+        UIFactory.Place(devMessage.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -205), new Vector2(560, 36));
+
+        Button ok = UIFactory.MakeButton("Ok", box, "확인", UIFactory.Hex("#3A4A2C"), SubmitDevPassword, 26);
+        UIFactory.Place((RectTransform)ok.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(120, 30), new Vector2(200, 60));
+        UIFactory.SkinButton(ok, UIFactory.GothicButton);
+        Button cancel = UIFactory.MakeButton("Cancel", box, "취소", UIFactory.Hex("#3A3F4C"), () => devDialog.gameObject.SetActive(false), 26);
+        UIFactory.Place((RectTransform)cancel.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-120, 30), new Vector2(200, 60));
+        UIFactory.SkinButton(cancel, UIFactory.GothicButton);
+        devDialog.gameObject.SetActive(false);
+    }
+
+    void SubmitDevPassword()
+    {
+        if (DevPanel.TryUnlock(devInput.text))
+        {
+            devMessage.color = UIFactory.Hex("#7AF09A");
+            devMessage.text = "개발자 모드 켜짐 (F1)";
+            devDialog.gameObject.SetActive(false);
+        }
+        else
+        {
+            devMessage.color = UIFactory.Hex("#FF8A7A");
+            devMessage.text = "비밀번호가 다릅니다";
+            devInput.text = "";
+            devInput.ActivateInputField();
+        }
     }
 
     // 소리 한 줄: [이름]  [-]  (막대) 50%  [+]   (10% 단위)
@@ -860,6 +950,7 @@ public class TitlePanel : MonoBehaviour
         SettingsArt.Hotspot(art, "Close", new SettingsArt.Box(321, 490, 556, 563), () => { GameSettings.Save(); settings.gameObject.SetActive(false); });
 
         refreshSettings = () => { r1(); r2(); r3(); r4(); };
+        AddDevQuestion(art.Rt, new Vector2(-46, 40));   // 3-205: 오른쪽 아래 작은 [?] = 숨은 개발자 모드
         dim.gameObject.SetActive(false);
         return true;
     }
@@ -909,7 +1000,8 @@ public class TitlePanel : MonoBehaviour
 #endif
         if (esc)
         {
-            if (settings.gameObject.activeSelf) { GameSettings.Save(); settings.gameObject.SetActive(false); }
+            if (devDialog != null && devDialog.gameObject.activeSelf) devDialog.gameObject.SetActive(false);   // 3-205
+            else if (settings.gameObject.activeSelf) { GameSettings.Save(); settings.gameObject.SetActive(false); }
             else if (lobby.gameObject.activeSelf) lobby.gameObject.SetActive(false);
             else if (newGameDialog != null && newGameDialog.gameObject.activeSelf) { newGameGo = null; newGameDialog.gameObject.SetActive(false); }   // 3-150: Esc = 취소
         }

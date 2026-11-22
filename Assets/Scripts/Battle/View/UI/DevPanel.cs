@@ -2,7 +2,7 @@
 // DevPanel.cs
 // 개발자 전용 테스트 도구 (치트). F1 로 열고 닫음
 //
-// ★ 유저는 못 씀: Enabled 가 false 면 F1 도, 위쪽 [개발] 버튼도 아예 안 생김
+// ★ 유저는 못 씀: Enabled 가 false 면 F1 도, 위쪽 [개발] 버튼도 안 보임 (3-205: 숨은 [?] 비밀번호로 켤 수 있음)
 //   Enabled = 유니티 에디터에서 실행 중  또는  "Development Build" 로 빌드한 게임
 //   → 팀원 테스트용 빌드: Build Settings 에서 Development Build 체크
 //   → 유저에게 나눠 줄 빌드: 체크 해제 (그러면 이 패널과 테스트 버튼이 전부 사라짐)
@@ -20,7 +20,42 @@ public class DevPanel : MonoBehaviour
 {
     public static bool Enabled
     {
-        get { return Application.isEditor || Debug.isDebugBuild; }
+        get { return Application.isEditor || Debug.isDebugBuild || Unlocked; }
+    }
+
+    // ==================== 3-205 숨은 개발자 모드 ====================
+    // 출시 빌드(웹·Windows)에서도 타이틀 [설정] 오른쪽 아래 작은 [?] → 비밀번호가 맞으면 이번 실행 동안만 켜짐
+    //   껐다 켜거나 새로고침하면 다시 꺼짐 (저장 안 함)
+    // 비밀번호는 원문 대신 "해시값"만 코드에 넣어 둠 (저장소가 공개라서 원문이 바로 보이지 않게)
+    //   해시 = 글자들을 섞어서 숫자 하나로 만드는 것. 같은 글자 → 항상 같은 숫자, 숫자만 보고 원래 글자를 알기는 어려움
+    //   자바로 치면 String.hashCode() 의 더 긴(64비트) 버전 (FNV-1a 라는 간단한 방법)
+    //   비밀번호를 바꾸려면: 새 비밀번호의 해시값을 계산해서 PasswordHash 만 바꾸면 됨
+    public static bool Unlocked { get; private set; }
+    public static event System.Action OnUnlocked;   // 켜지는 순간 BattleScreen 이 위쪽 개발 버튼을 보이게 함
+    const string PasswordSalt = "DeckRPG#";         // 앞에 붙이는 글자 (같은 숫자 비밀번호라도 다른 해시가 나오게)
+    const ulong PasswordHash = 0x3bb661e5ace58880UL;
+
+    static ulong Fnv1a(string s)
+    {
+        ulong h = 0xcbf29ce484222325UL;              // 시작값 (정해진 숫자)
+        foreach (byte b in System.Text.Encoding.UTF8.GetBytes(s))
+        {
+            h ^= b;                                   // ^ = XOR (비트 섞기)
+            h *= 0x100000001b3UL;                     // 정해진 소수 곱하기 (넘치는 자리는 자동으로 버려짐)
+        }
+        return h;
+    }
+
+    // 맞으면 true + 개발자 모드 켜기
+    public static bool TryUnlock(string password)
+    {
+        if (password == null || Fnv1a(PasswordSalt + password.Trim()) != PasswordHash) return false;
+        if (!Unlocked)
+        {
+            Unlocked = true;
+            if (OnUnlocked != null) OnUnlocked();
+        }
+        return true;
     }
 
     // BattleScreen 이 넣어 주는 것들

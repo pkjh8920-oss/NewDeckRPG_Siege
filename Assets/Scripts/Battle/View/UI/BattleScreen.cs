@@ -57,6 +57,7 @@ public class BattleScreen : MonoBehaviour
     private TutorialPanel tutorialPanel;   // 3-130: 처음 보는 화면에서 한 번만 뜨는 안내
     private RelicBar relicBar;             // 위쪽 줄 아래: 플레이어마다 아티팩트 + 골드
     private bool bannerAfterRewards;       // 보상 화면을 닫은 뒤에 스테이지 배너를 보여 줄지
+    private StatusGuidePanel statusGuide;   // 3-215 상태 사전 (위쪽 [상태] 버튼)
     private CompendiumPanel compendium;     // 3-180 도감 (게임에 있는 카드·아티팩트, 본 것만 공개)
     private float discoveryTimer;           // 3-180: 0.5초마다 "본 것" 훑기
     private DeckViewPanel deckView;        // 카드 목록 보기 (덱 / 뽑기 더미 / 버림 더미)
@@ -193,6 +194,7 @@ public class BattleScreen : MonoBehaviour
         Discovery.Scan(run);              // 3-180: 런을 버리기 전에 마지막으로 본 것 기록
         DiscoveryStore.SaveIfDirty();
         compendium.Hide();
+        if (statusGuide != null) statusGuide.Hide();   // 3-215
         run = null;   // 타이틀로 돌아가면 런은 끝 (메뉴·개발 도구가 옛 런을 건드리지 않게)
         titlePanel.DefaultClass = playerClass;
         titlePanel.Show();
@@ -437,6 +439,7 @@ public class BattleScreen : MonoBehaviour
         if (f1 && DevPanel.Enabled && run != null) devPanel.Toggle();
         if (!esc) return;
         // 3-180: 도감이 열려 있으면 Esc 는 도감 안에서만 (안쪽 화면 → 처음 화면 → 닫기). 타이틀 위에서 열었어도 여기서 처리
+        if (statusGuide != null && statusGuide.IsOpen) { statusGuide.Hide(); return; }   // 3-215: Esc 로 닫기
         if (compendium.IsOpen) { compendium.Back(); return; }
         if (difficultyPanel.IsOpen) return;   // 3-196: 난이도 화면에서는 Esc 무시 ([뒤로] 버튼으로)
         // 타이틀·캐릭터 선택 화면은 자기 Esc 처리를 씀
@@ -980,10 +983,46 @@ public class BattleScreen : MonoBehaviour
         }
         bool wasBoss = run.PendingIsBoss;
         run.FinishBattle(battle);
+        // 3-213: 이번 승리로 레벨이 오른 사람이 있으면 → 전투 화면에서 그 캐릭터에게 레벨 업 연출 → 그다음 보상·스탯 창
+        List<PlayerCombatant> leveled = new List<PlayerCombatant>();
+        foreach (PlayerReward r in run.Rewards) if (r.LevelsGained > 0 && r.Player != null) leveled.Add(r.Player);
+        if (leveled.Count > 0 && !run.IsOver)
+        {
+            resultPanel.SetActive(false);
+            StartCoroutine(LevelUpRoutine(leveled, wasBoss));
+            return;
+        }
         if (run.IsOver && run.Cleared)
         {
             // 3-112: 마지막 보스 → 엔딩 화면. [타이틀로] / [새 런]
             resultPanel.SetActive(false);
+            endingPanel.Show(run, ShowTitle, () => { endingPanel.Hide(); NewRun(); });
+        }
+        else if (run.IsOver) NewRun();
+        else ShowRunScreen(wasBoss);
+    }
+
+    // 3-213: 레벨 업 연출 (전투 화면에서 캐릭터마다)
+    //   발밑에서 금빛 기둥(Fx_LevelUp) + 금빛 조각이 솟고 + 캐릭터가 힘을 모으는 자세 + "LEVEL UP!" 글자
+    //   다 보여 준 뒤(약 1.5초) 원래대로 다음 화면(보상 → 스탯 창)
+    IEnumerator LevelUpRoutine(List<PlayerCombatant> leveled, bool wasBoss)
+    {
+        busy = true;
+        SoundManager.Play("LevelUp", "PowerUp");
+        foreach (PlayerCombatant pl in leveled)
+        {
+            UnitView v = ViewOf(pl);
+            if (v == null) continue;
+            v.Motion.ManaCharge();   // 제자리에서 기운을 모으는 자세 (자세 그림이 없으면 몸만 살짝 들썩)
+            Vfx.Art(popupLayer, "Fx_LevelUp", UnitPos(v, 0f) + new Vector2(0f, v.ArtHeight * 0.62f), v.ArtHeight * 1.35f, 0f, 1.4f, 0.6f, 1f, 1.05f, 0.25f, 0.55f);
+            Vfx.Rise(popupLayer, UnitPos(v, 0.4f), UIFactory.Hex("#FFD86A"), 14);
+            Popup(UnitPos(v, 1.05f), "LEVEL UP!", UIFactory.Hex("#FFE08A"), 1.8f, 44);
+            yield return new WaitForSeconds(0.15f);   // 여러 명이면 살짝씩 차례로
+        }
+        yield return new WaitForSeconds(GameBalance.FxLevelUpTime);
+        busy = false;
+        if (run.IsOver && run.Cleared)
+        {
             endingPanel.Show(run, ShowTitle, () => { endingPanel.Hide(); NewRun(); });
         }
         else if (run.IsOver) NewRun();
@@ -1043,6 +1082,7 @@ public class BattleScreen : MonoBehaviour
         waveSwapping = false;
         shownWaveVersion = battle.WaveVersion;
         arrowTarget = null;
+        relicLogSeen = 0;   // 3-208: 새 전투 = 기록 처음부터 확인
 
         ApplySceneArt();
         BuildUnits();
@@ -1391,10 +1431,50 @@ public class BattleScreen : MonoBehaviour
         pauseMenu = PauseMenu.Create(root);   // 맨 마지막: 모든 화면 위
         pauseMenu.OnTitle = ShowTitle;
         pauseMenu.OnSave = SaveFromMenu;   // 3-141
+        statusGuide = StatusGuidePanel.Create(root);   // 3-215
         compendium = CompendiumPanel.Create(root);   // 3-180 도감 (열 때 SetAsLastSibling 으로 맨 위)
         difficultyPanel = DifficultyPanel.Create(root);   // 3-196 난이도 선택
         titlePanel.OnCompendium = () => compendium.Open();
     }
+
+    // ==================== 3-208: 아티팩트 발동 표시 ====================
+    // 규칙 쪽(BattleSystem)은 아티팩트가 발동하면 "이름 아티팩트이름: ..." 처럼 기록(Log)에 한 줄 남김
+    //   → 화면은 새로 생긴 기록 줄만 보고, 그 줄에 "플레이어 이름 + 아티팩트 이름"이 있으면 그 캐릭터 몸에 금빛 고리
+    //   한 번 새로고침에 캐릭터당 한 번만 (여러 개가 동시에 터져도 겹쳐서 번쩍이지 않게)
+    private int relicLogSeen;
+    void PlayRelicPulses()
+    {
+        if (battle == null) return;
+        if (relicLogSeen > battle.Log.Count) relicLogSeen = 0;
+        HashSet<PlayerCombatant> pulsed = new HashSet<PlayerCombatant>();
+        for (int i = relicLogSeen; i < battle.Log.Count; i++)
+        {
+            string line = battle.Log[i];
+            foreach (PlayerCombatant pl in battle.Players)
+            {
+                if (pulsed.Contains(pl) || !line.StartsWith(pl.Name)) continue;
+                foreach (RelicData r in pl.Relics)
+                {
+                    if (!line.Contains(r.Name)) continue;
+                    UnitView v = ViewOf(pl);
+                    if (v != null) Vfx.Art(popupLayer, "Fx_RelicPulse", UnitPos(v, 0.5f), v.ArtHeight * 0.55f, 0f, 0.8f, 0.5f, 1f, 1.1f, 0.25f, 0.5f);
+                    pulsed.Add(pl);
+                    break;
+                }
+            }
+        }
+        relicLogSeen = battle.Log.Count;
+    }
+
+    // 3-205: 숨은 개발자 모드가 켜졌을 때 = 위쪽 개발 버튼 보이기 + 위쪽 글자 칸을 개발 버튼 자리만큼 좁힘
+    private RectTransform devButtons;
+    void ShowDevButtons()
+    {
+        if (devButtons != null) devButtons.gameObject.SetActive(true);
+        if (topText != null) topText.rectTransform.sizeDelta = new Vector2(370, topText.rectTransform.sizeDelta.y);
+        Toast("개발자 모드 켜짐 (F1)");
+    }
+    void OnDestroy() { DevPanel.OnUnlocked -= ShowDevButtons; }   // 화면이 없어질 때 연결 끊기 (자바의 리스너 해제)
 
     void BuildTopBar()
     {
@@ -1436,25 +1516,36 @@ public class BattleScreen : MonoBehaviour
         UIFactory.SkinButton(menuBtn, "UI/Buttons/Top_Purple", 1.0f, true);
         UIFactory.SkinButton(compBtn, "UI/Buttons/Top_Green", 1.0f, true);
 
+        // 3-215: [상태] 상태 사전 (도감 왼쪽). 처음 하는 사람도 바로 보이게 위쪽 줄에 둠
+        Button statusBtn = UIFactory.MakeButton("StatusButton", topBar, "상태", UIFactory.Hex("#4A2C2C"), () => statusGuide.Open(), 20);
+        UIFactory.Place((RectTransform)statusBtn.transform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-620, -10), new Vector2(130, 44));
+        Image statusSkin = UIFactory.SkinButton(statusBtn, "UI/Buttons/Top_Purple", 1.0f, true);
+        if (statusSkin != null) statusSkin.color = UIFactory.Hex("#FFB0B0");   // 보라 버튼 그림을 붉은빛으로 물들여서 다른 버튼과 구분
+
         // ---- 개발자용 버튼: 에디터·개발 빌드에서만 생김 (유저용 빌드에는 아예 없음) ----
         //   3-180: [도감] 자리만큼 150 씩 왼쪽으로
-        if (DevPanel.Enabled)
+        //   3-205: 항상 만들어 두고 devButtons 상자에 담아서 숨김 → 숨은 개발자 모드가 켜지면 보이게
+        devButtons = UIFactory.MakeRect("DevButtons", topBar);
+        UIFactory.Stretch(devButtons);
         {
-            Button devBtn = UIFactory.MakeButton("DevButton", topBar, "개발 F1", UIFactory.Hex("#24402C"), () => devPanel.Toggle(), 18);
-            UIFactory.Place((RectTransform)devBtn.transform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-620, -10), new Vector2(130, 44));
+            Button devBtn = UIFactory.MakeButton("DevButton", devButtons, "개발 F1", UIFactory.Hex("#24402C"), () => devPanel.Toggle(), 18);
+            UIFactory.Place((RectTransform)devBtn.transform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-770, -10), new Vector2(130, 44));   // 3-215: [상태] 자리만큼 150 왼쪽
 
-            Button newBtn = UIFactory.MakeButton("NewRun", topBar, "새 런", UIFactory.Hex("#3A4A2C"), () => NewRun(), 20);
-            UIFactory.Place((RectTransform)newBtn.transform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-770, -10), new Vector2(130, 44));
+            Button newBtn = UIFactory.MakeButton("NewRun", devButtons, "새 런", UIFactory.Hex("#3A4A2C"), () => NewRun(), 20);
+            UIFactory.Place((RectTransform)newBtn.transform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-920, -10), new Vector2(130, 44));
 
             // 테스트 전투 버튼들: 진행 위치는 그대로 두고 그 전투만 바로 해 봄 (HP는 런 그대로)
             for (int i = 0; i < TestFightNames.Length; i++)
             {
                 int index = i;   // 람다 안에서 쓰려면 반복 변수를 복사해 둬야 함
-                Button b = UIFactory.MakeButton("Enc" + i, topBar, TestFightNames[i], UIFactory.Hex("#2C3140"),
+                Button b = UIFactory.MakeButton("Enc" + i, devButtons, TestFightNames[i], UIFactory.Hex("#2C3140"),
                     () => StartTestBattle(index), 17);
-                UIFactory.Place((RectTransform)b.transform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-915 - (TestFightNames.Length - 1 - i) * 125, -10), new Vector2(118, 44));
+                UIFactory.Place((RectTransform)b.transform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-1065 - (TestFightNames.Length - 1 - i) * 125, -10), new Vector2(118, 44));
             }
         }
+
+        devButtons.gameObject.SetActive(DevPanel.Enabled);
+        DevPanel.OnUnlocked += ShowDevButtons;   // 3-205: 숨은 개발자 모드가 켜지면
 
         // 아티팩트 · 골드 줄 (위쪽 줄 바로 아래 왼쪽)
         relicBar = RelicBar.Create(topBar);
@@ -1955,13 +2046,34 @@ public class BattleScreen : MonoBehaviour
         shownEnemyListVersion = battle.EnemyListVersion;
         int n = battle.Enemies.Count;
         float gap = n >= 5 ? 205f : (n >= 4 ? 235f : (n >= 3 ? 270f : 300f));   // 3-102: 무리 몬스터(4~5마리)는 더 촘촘히
+        // 3-219: 심판의 쌍둥이 석상(둘 다 크게 470)은 서로 겹치지 않게 간격을 넓힘
+        bool twins = false;
+        foreach (EnemyCombatant te in battle.Enemies) if (te.Name.Contains("석상") && te.Rank == EnemyRank.Boss) twins = true;
+        // 3-221: 사람이 적으면 우리 캐릭터가 크게 보이므로(4명 0.8배 / 3명 0.9배 / 1~2명 1배) 석상을 그만큼 키움
+        //   1~2명 = 1.2배, 3명 = 1.1배, 4명 = 1배 (4명일 때가 지금 보기 좋은 비율)
+        int partyN = battle.Players.Count;
+        float twinScale = twins ? (partyN >= 4 ? 1f : (partyN == 3 ? 1.1f : 1.2f)) : 1f;
+        if (twins && n == 2) gap = 400f * twinScale;
         for (int i = 0; i < n; i++)
         {
             UnitView v = MakeUnitView(battle.Enemies[i], enemyArea, true, Mathf.Min(HpBarW, gap - 24f));   // 3-149: 몬스터가 많으면 옆 칸과 안 겹치게
             // 무리 전체를 오른쪽으로 밀되, 오른쪽 끝 적이 화면 밖/턴 종료 버튼 쪽으로 나가면 무리째 왼쪽으로 당김
             float center = Mathf.Min(EnemyCenterX, RightmostEnemyX - (n - 1) / 2f * gap);
+            if (twins && twinScale > 1f) center = Mathf.Min(center, 1630f - (n - 1) / 2f * gap);   // 3-221: 커진 달의 석상이 화면 오른쪽 밖으로 안 나가게
             float x = center + (i - (n - 1) / 2f) * gap;
             UIFactory.Place(v.Rt, Vector2.zero, new Vector2(0.5f, 0f), new Vector2(x, currentFloorY), new Vector2(280, 420));
+            if (twinScale > 1f)
+            {
+                // 3-221: 몸만 크게, 체력바·의도 상자 글자는 원래 크기 (플레이어 0.8배 때와 같은 방법을 반대로)
+                v.Rt.localScale = new Vector3(twinScale, twinScale, 1f);
+                float inv = 1f / twinScale;
+                if (v.HpRoot != null)
+                {
+                    v.HpRoot.localScale = new Vector3(inv, inv, 1f);
+                    v.StatusRow.anchoredPosition = new Vector2(v.StatusRow.anchoredPosition.x, -22f - v.HpBarH * inv - 4f);
+                }
+                if (v.IntentBox != null) v.IntentBox.localScale = new Vector3(inv, inv, 1f);
+            }
             // 3-106: 4마리 이상이면 의도 칸(원래 폭 300)이 옆 칸과 겹침 → 간격에 맞게 줄이고, 글자가 길면 작게
             if (n >= 4 && v.IntentBox != null)
             {
@@ -2272,6 +2384,8 @@ public class BattleScreen : MonoBehaviour
         else endTurnButton.GetComponentInChildren<Text>().text = notMyTurn ? "대기 중" : "턴 종료";
         RefreshPlayerTabs();
         SyncHand();
+
+        // PlayRelicPulses();   // 3-208 아티팩트 발동 금빛 고리 → 3-213: 화면이 산만해서 끔 (다시 켜려면 이 줄 주석만 풀면 됨)
 
         // 기록: 마지막 28줄
         int start = Mathf.Max(0, battle.Log.Count - 28);
@@ -2854,6 +2968,9 @@ public class BattleScreen : MonoBehaviour
             case "shadow_raid":        // 그림자 습격: 내 자리에서 적 쪽으로 그림자 잔상이 달려감
                 foreach (UnitView tv in tvs) Vfx.Fly(popupLayer, "Fx_ShadowDash", me, UnitPos(tv, 0.45f), 200f, 0.28f);
                 break;
+            case "half_moon":          // 3-207: 월식으로 바로 터진 반월참 = 맞은 적마다 반달 베기
+                foreach (UnitView tv in tvs) Vfx.Art(popupLayer, "Fx_HalfMoonBurst", UnitPos(tv, 0.5f), 300f, Random.Range(-12f, 6f), 0.6f, 0.6f, 1.05f, 1.12f, 0.2f, 0.45f);
+                break;
             case "blood_dance": case "reaper_waltz":   // 3-198 피의 검무·사신의 윤무: 붉은 칼날이 원을 그리며 돎
                 foreach (UnitView tv in tvs) Vfx.Big(popupLayer, "Fx_BloodDance", UnitPos(tv, 0.5f), 280f, 0.7f, -360f);
                 break;
@@ -2955,7 +3072,7 @@ public class BattleScreen : MonoBehaviour
     {
         switch (id)
         {
-            case "dark_night_slash": case "shadow_raid": case "blood_dance": case "reaper_waltz":
+            case "dark_night_slash": case "shadow_raid": case "blood_dance": case "reaper_waltz": case "half_moon":
             case "flame_lance": case "phoenix_pierce":
             case "thunderbolt": case "plasma_bolt": case "ice_spike": case "glacier_cut":
             case "sn_spray": case "sn_rapid": case "sn_pierce": case "sn_red_flash":
@@ -3123,6 +3240,12 @@ public class BattleScreen : MonoBehaviour
             if (!p.Hand.Contains(v.Data))
             {
                 bool toDiscard = p.DiscardPile.Contains(v.Data);
+                if (!toDiscard && p.ExhaustPile.Contains(v.Data))
+                {
+                    // 3-208: 소멸 = 가운데에 보여 준 뒤 보랏빛 불에 타서 재가 됨
+                    VfxPart burn = Vfx.Art(handRoot, "Fx_CardBurn", CardView.ShowcasePos, 340f, 0f, 0.9f, 0.7f, 1f, 1.1f, 0.2f, 0.45f);
+                    if (burn != null) burn.Delay = v.Data == lastPlayed ? GameBalance.FxCardShowTime : 0f;
+                }
                 Vector2 dest = toDiscard ? LocalOf(discardPile) : CardView.ShowcasePos;
                 if (v.Data == lastPlayed) v.CastColor = slashColor;   // 3-182: 카드 사용 빛 = 직업 색 (검은 낫 보라, 피닉스 주황, 마도사 하늘, 스나이퍼 진홍)
                 v.Leave(dest, toDiscard ? 0.3f : 0.05f, v.Data == lastPlayed);   // 방금 낸 카드는 가운데에 보여 준 뒤
@@ -3499,7 +3622,12 @@ public class BattleScreen : MonoBehaviour
         if (id == "half_moon")
         {
             UnitView mv = ViewOf(p);
-            if (mv != null) Vfx.Rise(popupLayer, UnitPos(mv, 0.5f), UIFactory.Hex("#A65CFF"), 8);
+            if (mv != null)
+            {
+                Vfx.Rise(popupLayer, UnitPos(mv, 0.5f), UIFactory.Hex("#A65CFF"), 8);
+                // 3-207: 반월참 차징 = 몸 뒤에서 낫과 반달, 보랏빛 기운이 감겨 오름
+                Vfx.Art(popupLayer, "Fx_HalfMoonCharge", UnitPos(mv, 0.55f), mv.ArtHeight * 1.25f, 0f, 1.2f, 0.6f, 1f, 1.05f, 0.25f, 0.6f);
+            }
             Refresh();
             return;
         }
@@ -3747,8 +3875,11 @@ public class BattleScreen : MonoBehaviour
             Color c = fp.IsNight ? UIFactory.Hex("#C0206A") : UIFactory.Hex("#9A3BFF");   // 죽음의 밤이면 붉은 보라
             foreach (UnitView ev in enemyViews)
             {
+                if (ev.Unit == null || ev.Unit.IsDead) continue;
                 Vector2 ep = UnitPos(ev, 0.5f);
-                Vfx.Crescent(popupLayer, ep, c, 360f, Random.Range(-35f, -15f));
+                // 3-207: 반월참 전용 그림 (은빛·보라 반달 베기 + 깃털). 그림이 없으면 예전 코드 초승달
+                if (Vfx.Art(popupLayer, "Fx_HalfMoonBurst", ep, 300f, Random.Range(-12f, 6f), 0.6f, 0.6f, 1.05f, 1.12f, 0.2f, 0.45f) == null)
+                    Vfx.Crescent(popupLayer, ep, c, 360f, Random.Range(-35f, -15f));
                 Vfx.Shards(popupLayer, ep, UIFactory.Hex("#0C0612"), 8, 420f, 20f);
             }
             flash.color = new Color(0.8f, 0.7f, 1f, 0.35f);

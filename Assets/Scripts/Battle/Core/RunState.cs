@@ -211,7 +211,17 @@ public class RunState
         //   1스테이지 = 종족 수문장 (광폭한·철퇴·부패한, 종족을 따름) / 2스테이지 = 심연의 거대 껍질·잊혀진 왕의 망령·차원 균열의 감시자 중 1
         //   3스테이지 = 요새의 수문장·심판의 쌍둥이 석상(태양·달) 중 1 / 4스테이지 = 설계자 고정
         StageBosses[0] = 0;
-        StageBosses[1] = rng.Next(3);
+        // 3-214: 2스테이지는 확률표대로 (거대 껍질 35 / 잊혀진 왕의 망령 30 / 차원 균열의 감시자 35). 숫자는 GameBalance.Stage2BossWeights
+        //   방법: 0~(합계-1) 사이 숫자를 하나 뽑고, 앞에서부터 확률을 빼 가며 어느 칸에 떨어졌는지 봄 (자바에서 가중치 랜덤 뽑기와 같음)
+        {
+            int[] w = GameBalance.Stage2BossWeights;
+            int total = 0;
+            foreach (int x in w) total += x;
+            int roll = rng.Next(total);
+            int kind = 0;
+            while (kind < w.Length - 1 && roll >= w[kind]) { roll -= w[kind]; kind++; }
+            StageBosses[1] = kind;
+        }
         StageBosses[2] = rng.Next(2);
         // 3-112: 시작 골드
         foreach (PlayerCombatant p in Players) p.Gold = GameBalance.StartGold;

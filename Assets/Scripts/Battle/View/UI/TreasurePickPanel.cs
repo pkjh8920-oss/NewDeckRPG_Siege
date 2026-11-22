@@ -41,7 +41,24 @@ public class TreasurePickPanel : MonoBehaviour
         TreasurePickPanel panel = rt.gameObject.AddComponent<TreasurePickPanel>();
         Image dim = UIFactory.MakeImage("Dim", rt, Color.white, false);
         dim.sprite = UIFactory.MakeGradient(UIFactory.Hex("#2A2216"), UIFactory.Hex("#0C0A08"));
-        UIFactory.Stretch(dim.rectTransform);
+        UIFactory.Stretch(dim.rectTransform, 0, 0, -64, 0);   // 3-211: 위쪽 버튼 줄 뒤까지
+        // 3-211: 배경 그림 (무너진 성벽 사이 길, Backgrounds/Treasure_BG). 비율 그대로 화면을 꽉 채움 + 살짝 어둡게
+        Sprite bg = Resources.Load<Sprite>("Backgrounds/Treasure_BG");
+        if (bg != null)
+        {
+            RectTransform clip = UIFactory.MakeRect("BgClip", rt);
+            UIFactory.Stretch(clip, 0, 0, -64, 0);
+            clip.gameObject.AddComponent<RectMask2D>();
+            Image art = UIFactory.MakeImage("BgArt", clip, Color.white, false);
+            art.sprite = bg;
+            art.raycastTarget = false;
+            UIFactory.Stretch(art.rectTransform);
+            AspectRatioFitter fit = art.gameObject.AddComponent<AspectRatioFitter>();
+            fit.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;   // 비율 지키며 빈틈 없이 (넘치는 부분은 잘림)
+            fit.aspectRatio = bg.rect.width / bg.rect.height;
+            Image shade = UIFactory.MakeImage("Shade", clip, new Color(0f, 0f, 0f, 0.35f), false);
+            UIFactory.Stretch(shade.rectTransform);
+        }
         panel.content = UIFactory.MakeRect("Content", rt);
         UIFactory.Stretch(panel.content);
         rt.gameObject.SetActive(false);
@@ -81,7 +98,7 @@ public class TreasurePickPanel : MonoBehaviour
             Image plate = UIFactory.MakeImage("TitlePlate", content, Color.white, false);
             plate.sprite = titleArt;
             plate.preserveAspect = true;
-            UIFactory.Place(plate.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -2), new Vector2(820, 162));
+            UIFactory.Place(plate.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -2), new Vector2(1000, 179));   // 3-211: 붉은 연기 달린 새 제목 판 (1320×236)
             plate.raycastTarget = false;
         }
         Text title = UIFactory.MakeText("Title", content, "보물 상자 " + chestNo + "/" + GameBalance.TreasureChests, 52, UIFactory.Hex("#FFD27A"), TextAnchor.MiddleCenter);
@@ -121,7 +138,7 @@ public class TreasurePickPanel : MonoBehaviour
                 {
                     bool on = i == picker;
                     RectTransform holder = UIFactory.MakeRect("Tab" + i, content);
-                    UIFactory.Place(holder, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2((i - (n - 1) / 2f) * 262, -232), new Vector2(244, 68));
+                    UIFactory.Place(holder, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2((i - (n - 1) / 2f) * 262, -290), new Vector2(244, 68));   // 3-220: 안내 두 번째 줄이 가려져서 탭을 아래로 (-232 → -290)
                     if (on)
                     {
                         // 고르는 사람 = 뒤에 그 사람 색 빛
@@ -146,7 +163,7 @@ public class TreasurePickPanel : MonoBehaviour
                     continue;
                 }
                 Button b = UIFactory.MakeButton("Tab" + i, content, label, i == picker ? UIFactory.Hex("#6A4A2A") : UIFactory.Hex("#2C2420"), () => { picker = index; Redraw(); }, 22);
-                UIFactory.Place((RectTransform)b.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2((i - (n - 1) / 2f) * 262, -232), new Vector2(240, 50));
+                UIFactory.Place((RectTransform)b.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2((i - (n - 1) / 2f) * 262, -290), new Vector2(240, 50));
                 b.gameObject.AddComponent<Outline>().effectColor = PlayerColor(i);
             }
         }
@@ -154,7 +171,7 @@ public class TreasurePickPanel : MonoBehaviour
         // 물건 줄
         List<ShopItem> items = run.TreasureItems;
         int m = items.Count;
-        float gap = Mathf.Min(300f, 1500f / Mathf.Max(1, m));
+        float gap = Mathf.Min(380f, 1600f / Mathf.Max(1, m));   // 3-218: 칸 300 → 380 (물건 칸 크게)
         for (int j = 0; j < m; j++)
         {
             int jj = j;
@@ -162,8 +179,15 @@ public class TreasurePickPanel : MonoBehaviour
             float x = (j - (m - 1) / 2f) * gap;
             bool can = run.CanTakeTreasure(me, item);
 
+            // 3-218: 카드면 카드 그림을 크게 (세로 220, 카드 비율대로) → 틀도 그만큼 길게, 글자도 그만큼 아래로
+            Sprite cardArt = item.Card != null ? Resources.Load<Sprite>("Cards/" + item.Card.Id) : null;
+            float iconH = item.Card != null ? (n > 1 ? 230f : 260f) : 140f;   // 3-220: 멀티는 P 탭 때문에 카드를 조금 작게
+            float iconW = cardArt != null ? iconH * cardArt.rect.width / cardArt.rect.height : (item.Card != null ? iconH * 0.72f : 140f);
+            float extra = iconH - 110f;   // 아이콘이 커진 만큼 (글자·틀을 이만큼 늘림)
             Image frame = UIFactory.MakeImage("Slot" + j, content, new Color(0.18f, 0.14f, 0.1f, 0.95f), false);
-            UIFactory.Place(frame.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(x, 20), new Vector2(gap - 30, 330));
+            // 3-220: 물건 칸을 아래(버튼 쪽)로 내리고, 높이가 달라도 위쪽 줄을 맞춤 (pivot 위쪽 = 칸의 윗변 기준으로 놓기)
+            float slotTop = n > 1 ? 150f : 210f;   // 화면 가운데 기준 윗변 위치 (멀티는 P 탭이 있어서 더 아래)
+            UIFactory.Place(frame.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 1f), new Vector2(x, slotTop), new Vector2(gap - 30, 330 + extra));
             frame.raycastTarget = true;
             // 3-181: 물건 틀 그림 (6번 그림). 누가 고른 물건 = 금테, 아니면 덩굴 쇠틀
             bool anyPicked = System.Array.IndexOf(run.TreasurePicks, j) >= 0;
@@ -181,14 +205,14 @@ public class TreasurePickPanel : MonoBehaviour
             if (item.Card != null)
             {
                 // 공용 카드: 카드 그림이 있으면 그 그림, 없으면 카드 모양 네모 (2026-11-15)
-                Sprite art = Resources.Load<Sprite>("Cards/" + item.Card.Id);
+                Sprite art = cardArt;
                 icon = UIFactory.MakeImage("CardIcon", frame.transform, art != null ? Color.white : UIFactory.Hex("#5A6A8A"), false);
                 if (art != null) icon.sprite = art;
                 Text ct2 = UIFactory.MakeText("T", icon.transform, art != null ? "" : "카드\n" + item.Card.Cost, 22, Color.white, TextAnchor.MiddleCenter);
                 UIFactory.Stretch(ct2.rectTransform);
             }
-            else icon = item.Relic != null ? RelicView.MakeIcon(frame.transform, item.Relic, 110, null) : PotionView.MakeIcon(frame.transform, item.Potion, 110);
-            UIFactory.Place(icon.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(0, -80), new Vector2(110, 110));
+            else icon = item.Relic != null ? RelicView.MakeIcon(frame.transform, item.Relic, 140, null) : PotionView.MakeIcon(frame.transform, item.Potion, 140);
+            UIFactory.Place(icon.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(0, -80 - extra / 2f), new Vector2(iconW, iconH));
             icon.raycastTarget = false;
             if (!can) icon.color = new Color(1, 1, 1, 0.35f);
 
@@ -197,22 +221,29 @@ public class TreasurePickPanel : MonoBehaviour
             // 3-154: 이름 / 종류 / 설명을 따로 나눔 (한 글자 상자에 <size> 를 섞으면 글자 자동 축소가 안 돼서 긴 설명이 칸 밖으로 넘쳤음)
             Color tc = can ? Color.white : new Color(1, 1, 1, 0.4f);
             Text t = UIFactory.MakeText("Name", frame.transform, "<b>" + item.Name + "</b>", 24, tc, TextAnchor.MiddleCenter);
-            UIFactory.Place(t.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -150), new Vector2(gap - 50, 32));
+            UIFactory.Place(t.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -150 - extra), new Vector2(gap - 50, 36));
             t.supportRichText = true;
-            t.resizeTextForBestFit = true; t.resizeTextMinSize = 14; t.resizeTextMaxSize = 24;
+            t.resizeTextForBestFit = true; t.resizeTextMinSize = 14; t.resizeTextMaxSize = 28;   // 3-218 글자도 크게
             t.verticalOverflow = VerticalWrapMode.Truncate;
             t.raycastTarget = false;
             Text tk = UIFactory.MakeText("Kind", frame.transform, kind, 18, can ? UIFactory.Hex("#C8B890") : new Color(0.78f, 0.72f, 0.56f, 0.4f), TextAnchor.MiddleCenter);
-            UIFactory.Place(tk.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -182), new Vector2(gap - 50, 26));
-            tk.resizeTextForBestFit = true; tk.resizeTextMinSize = 12; tk.resizeTextMaxSize = 18;
+            UIFactory.Place(tk.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -182 - extra), new Vector2(gap - 50, 26));
+            tk.resizeTextForBestFit = true; tk.resizeTextMinSize = 12; tk.resizeTextMaxSize = 21;
             tk.verticalOverflow = VerticalWrapMode.Truncate;
             tk.raycastTarget = false;
             Text td = UIFactory.MakeText("Desc", frame.transform, desc, 19, tc, TextAnchor.UpperCenter);
-            UIFactory.Place(td.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -210), new Vector2(gap - 50, 112));
+            UIFactory.Place(td.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0, -210 - extra), new Vector2(gap - 50, 112));
             td.supportRichText = true;
-            td.resizeTextForBestFit = true; td.resizeTextMinSize = 12; td.resizeTextMaxSize = 19;
-            td.verticalOverflow = VerticalWrapMode.Truncate;
             td.raycastTarget = false;
+            // 3-223: 설명이 길면 글자를 줄이지 않고 틀을 아래로 길게 늘림 (긴 아티팩트 설명·페널티가 틀 밖으로 나가던 문제)
+            td.fontSize = 21;
+            td.horizontalOverflow = HorizontalWrapMode.Wrap;
+            td.verticalOverflow = VerticalWrapMode.Overflow;
+            float needH = td.preferredHeight + 8f;              // 이 폭에서 글이 실제로 차지하는 높이
+            float textExtra = Mathf.Max(0f, needH - 112f);     // 원래 칸(112)보다 넘치는 만큼
+            td.rectTransform.sizeDelta = new Vector2(gap - 50, 112 + textExtra);
+            frame.rectTransform.sizeDelta = new Vector2(gap - 30, 330 + extra + textExtra);
+            extra += textExtra;   // 아래 P 표시·받을 수 없음 글자도 그만큼 아래로
             if (!can)
             {
                 Text no = UIFactory.MakeText("No", frame.transform, "받을 수 없음", 20, UIFactory.Hex("#FF8A8A"), TextAnchor.MiddleCenter);
@@ -231,7 +262,7 @@ public class TreasurePickPanel : MonoBehaviour
             {
                 if (run.TreasurePicks[i] != j) continue;
                 Image chip = UIFactory.MakeImage("Pick" + i, content, PlayerColor(i), false);
-                UIFactory.Place(chip.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(x - 60 + shown * 42, -175), new Vector2(38, 30));
+                UIFactory.Place(chip.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(x - 60 + shown * 42, slotTop - (330 + extra) - 24f), new Vector2(38, 30));   // 3-220: 칸 바로 아래   // 3-218: 카드 틀이 길어진 만큼 아래로
                 chip.raycastTarget = false;
                 Text ct = UIFactory.MakeText("T", chip.transform, "P" + (i + 1), 18, Color.black, TextAnchor.MiddleCenter);
                 UIFactory.Stretch(ct.rectTransform);
@@ -242,9 +273,10 @@ public class TreasurePickPanel : MonoBehaviour
 
         bool all = run.AllTreasurePicked;
         Button ok = UIFactory.MakeButton("Resolve", content, all ? "나눠 받기" : "모두 고르면 나눠 받기", all ? UIFactory.Hex("#7846C8") : UIFactory.Hex("#3A3446"), Resolve, 30);
-        UIFactory.Place((RectTransform)ok.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0, 40), new Vector2(380, 76));
+        UIFactory.Place((RectTransform)ok.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0, 70), new Vector2(420, 70));   // 3-218: 버튼이 너무 커서 아래가 잘림 → 줄이고 위로   // 3-212: 새 버튼 판 안쪽에 글자가 들어가게 넓힘
         ok.interactable = all;
-        UIFactory.SkinButton(ok, "UI/Treasure/Treasure_Button", 1.05f);   // 3-181: 6번 그림 버튼 (못 누를 때는 버튼 기본 어두운 색이 그림에 입혀짐)
+        UIFactory.SkinButton(ok, "UI/Treasure/Treasure_Button", 1.3f);
+        FitButtonText(ok);   // 3-212   // 3-211: 보랏빛 불꽃 달린 새 버튼 (판이 그림의 74%라 1.35배로 키움). 3-181: 6번 그림 버튼 (못 누를 때는 버튼 기본 어두운 색이 그림에 입혀짐)
     }
 
     void Pick(int item)
@@ -275,7 +307,24 @@ public class TreasurePickPanel : MonoBehaviour
         // 3-174: 상자가 더 남았으면 (아직 보물 칸 안) "다음 상자" → 닫힌 두 번째 상자가 나옴
         bool moreChest = run.Place == RunPlace.Treasure;
         Button next = UIFactory.MakeButton("Continue", content, moreChest ? "다음 상자" : "계속", UIFactory.Hex("#4A3A2A"), () => { if (OnDone != null) OnDone(); }, 30);
-        UIFactory.Place((RectTransform)next.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0, 40), new Vector2(300, 76));
-        UIFactory.SkinButton(next, "UI/Treasure/Treasure_Button", 1.05f);   // 3-181: [나눠 받기] 와 같은 그림
+        UIFactory.Place((RectTransform)next.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0, 70), new Vector2(360, 70));
+        UIFactory.SkinButton(next, "UI/Treasure/Treasure_Button", 1.3f);
+        FitButtonText(next);   // 3-212   // 3-181: [나눠 받기] 와 같은 그림
+    }
+
+    // 3-212: 버튼 글자를 판 안쪽(양옆 쇠 장식 빼고)에만 들어가게 + 길면 자동으로 작게
+    static void FitButtonText(Button b)
+    {
+        Text t = b.GetComponentInChildren<Text>();
+        if (t == null) return;
+        RectTransform r = t.rectTransform;
+        r.anchorMin = Vector2.zero; r.anchorMax = Vector2.one;
+        r.offsetMin = new Vector2(60, 6); r.offsetMax = new Vector2(-60, -6);   // 왼쪽·오른쪽 70 = 판 양끝 가시 장식 자리
+        t.resizeTextForBestFit = true;
+        t.verticalOverflow = VerticalWrapMode.Truncate;   // 자동 축소는 세로가 Truncate 일 때만 동작
+        t.horizontalOverflow = HorizontalWrapMode.Wrap;
+        t.resizeTextMinSize = 16;
+        t.resizeTextMaxSize = 30;
+        t.alignment = TextAnchor.MiddleCenter;
     }
 }
